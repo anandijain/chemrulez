@@ -23,10 +23,17 @@ function makeElement() {
 
 const context = {
   console,
+  URLSearchParams,
+  window: {
+    location: {
+      search: "",
+    },
+  },
   fetch: async () => {
     throw new Error("Network access is not used in rule tests");
   },
   document: {
+    body: makeElement(),
     querySelector() {
       return makeElement();
     },

@@ -8,6 +8,7 @@ const state = {
   puzzle: null,
   target: null,
   solved: false,
+  mode: new URLSearchParams(window.location.search).get("mode") === "puzzles" ? "puzzles" : "free",
 };
 
 const chem = {
@@ -180,12 +181,16 @@ const els = {
   importPanel: document.querySelector("#importPanel"),
   moleculeInput: document.querySelector("#moleculeInput"),
   importStatus: document.querySelector("#importStatus"),
+  modeIntro: document.querySelector("#modeIntro"),
+  freePlayLink: document.querySelector("#freePlayLink"),
+  puzzlesLink: document.querySelector("#puzzlesLink"),
   puzzleSelect: document.querySelector("#puzzleSelect"),
   startPuzzleBtn: document.querySelector("#startPuzzleBtn"),
   puzzleDetails: document.querySelector("#puzzleDetails"),
   puzzleStatus: document.querySelector("#puzzleStatus"),
   activeMolecule: document.querySelector("#activeMolecule"),
   reagentForm: document.querySelector("#reactionForm"),
+  reagentPanel: document.querySelector("#reagentPanel"),
   reagentInput: document.querySelector("#reagentInput"),
   applyBtn: document.querySelector("#applyBtn"),
   resolvedReagent: document.querySelector("#resolvedReagent"),
@@ -394,6 +399,7 @@ els.resetBtn.addEventListener("click", () => {
   els.applyBtn.disabled = true;
   els.results.innerHTML = "";
   els.resolvedReagent.innerHTML = "";
+  renderMode();
   renderPuzzle();
   renderMolecule();
   renderPath();
@@ -572,10 +578,12 @@ function selectMolecule(molecule, pathLabel) {
     label: pathLabel,
     smiles: state.active.canonicalSmiles,
     structureKey: state.active.structureKey,
+    imageUrl: state.active.imageUrl || imageUrlForSmiles(state.active.canonicalSmiles),
   });
   updatePuzzleSolvedState();
   els.reagentInput.disabled = false;
   els.applyBtn.disabled = false;
+  renderMode();
   renderMolecule();
   renderPath();
   renderPuzzle();
@@ -638,20 +646,42 @@ function withChemMetadata(molecule) {
 
 function populatePuzzleSelect() {
   els.puzzleSelect.innerHTML = `
-    <option value="">Free play</option>
+    <option value="">Choose a puzzle</option>
     ${synthesisPuzzles
       .map((puzzle) => `<option value="${escapeHtml(puzzle.id)}">${escapeHtml(puzzle.title)}</option>`)
       .join("")}
   `;
 }
 
-function renderPuzzle() {
-  els.importPanel.classList.toggle("is-hidden", Boolean(state.puzzle));
+function renderMode() {
+  const isPuzzleMode = state.mode === "puzzles";
+  document.body.classList.toggle("puzzle-mode", isPuzzleMode);
+  document.body.classList.toggle("free-mode", !isPuzzleMode);
+  document.body.classList.toggle("has-active-molecule", Boolean(state.active));
+  els.puzzleSelect.disabled = !isPuzzleMode;
+  els.startPuzzleBtn.disabled = !isPuzzleMode;
+  els.freePlayLink.classList.toggle("active", !isPuzzleMode);
+  els.puzzlesLink.classList.toggle("active", isPuzzleMode);
+  els.modeIntro.textContent = isPuzzleMode
+    ? "Solve a target synthesis without revealing the reagent path."
+    : "Import a molecule, then transform it step by step.";
+}
 
-  if (!state.puzzle) {
-    els.puzzleStatus.textContent = "Free play";
+function renderPuzzle() {
+  const isPuzzleMode = state.mode === "puzzles";
+  els.importPanel.classList.toggle("is-hidden", isPuzzleMode);
+
+  if (!isPuzzleMode) {
+    els.puzzleStatus.textContent = "";
     els.puzzleStatus.className = "status-inline";
     els.puzzleDetails.innerHTML = "";
+    return;
+  }
+
+  if (!state.puzzle) {
+    els.puzzleStatus.textContent = "Choose a puzzle";
+    els.puzzleStatus.className = "status-inline";
+    els.puzzleDetails.innerHTML = `<p class="muted">Pick a target, press Start, then use reagents to build a route.</p>`;
     return;
   }
 
@@ -664,7 +694,7 @@ function renderPuzzle() {
       <img src="${target.imageUrl}" alt="Target structure for ${escapeHtml(target.displayName)}">
       <div>
         <strong>${escapeHtml(state.puzzle.startName)} -> ${escapeHtml(state.puzzle.targetName)}</strong>
-        <p>${escapeHtml(state.puzzle.tier)} · ${escapeHtml(state.puzzle.source)}</p>
+        <p>${escapeHtml(state.puzzle.tier)} / ${escapeHtml(state.puzzle.source)}</p>
         <details class="puzzle-hints">
           <summary>Hints</summary>
           <p>Target key: <code>${escapeHtml(target.canonicalSmiles)}</code></p>
@@ -694,12 +724,15 @@ function renderPath() {
 
   els.pathList.innerHTML = state.path
     .map((step) => `
-      <li>
-        <strong>${escapeHtml(step.label)}</strong><br>
-        <code>${escapeHtml(step.smiles)}</code>
-        ${step.structureKey && step.structureKey !== step.smiles
-          ? `<br><small>graph: <code>${escapeHtml(step.structureKey)}</code></small>`
-          : ""}
+      <li class="path-step">
+        <img src="${step.imageUrl || imageUrlForSmiles(step.smiles)}" alt="Structure for ${escapeHtml(step.label)}">
+        <div>
+          <strong>${escapeHtml(step.label)}</strong><br>
+          <code>${escapeHtml(step.smiles)}</code>
+          ${step.structureKey && step.structureKey !== step.smiles
+            ? `<br><small>graph: <code>${escapeHtml(step.structureKey)}</code></small>`
+            : ""}
+        </div>
       </li>
     `)
     .join("");
@@ -2168,6 +2201,7 @@ function escapeHtml(value) {
 }
 
 populatePuzzleSelect();
+renderMode();
 renderPuzzle();
 renderMolecule();
 renderPath();

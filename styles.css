@@ -101,6 +101,29 @@ input:disabled {
   justify-content: space-between;
 }
 
+.mode-nav {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.mode-nav a {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--ink);
+  font-weight: 700;
+  min-height: 42px;
+  padding: 10px 12px;
+  text-decoration: none;
+}
+
+.mode-nav a.active,
+.mode-nav a:hover {
+  background: var(--surface-2);
+}
+
 h1,
 h2,
 p {
@@ -140,6 +163,75 @@ h2 {
 
 .panel {
   padding: 16px;
+}
+
+.puzzle-panel {
+  order: 1;
+}
+
+.import-panel {
+  order: 1;
+}
+
+.reagent-panel {
+  order: 2;
+}
+
+.molecule-view {
+  order: 3;
+}
+
+.results {
+  order: 4;
+}
+
+.free-mode .puzzle-panel {
+  display: none;
+}
+
+.free-mode:not(.has-active-molecule) .reagent-panel,
+.free-mode:not(.has-active-molecule) .molecule-view,
+.free-mode:not(.has-active-molecule) .history,
+.puzzle-mode:not(.has-active-molecule) .reagent-panel,
+.puzzle-mode:not(.has-active-molecule) .molecule-view,
+.puzzle-mode:not(.has-active-molecule) .history {
+  display: none;
+}
+
+.free-mode:not(.has-active-molecule) .import-panel {
+  margin-top: 24px;
+}
+
+.puzzle-mode .puzzle-panel {
+  display: block;
+}
+
+.puzzle-mode .reagent-panel {
+  order: 2;
+}
+
+.puzzle-mode .molecule-view {
+  order: 3;
+}
+
+.has-active-molecule.free-mode .reagent-panel {
+  order: 1;
+}
+
+.has-active-molecule.free-mode .molecule-view {
+  order: 2;
+}
+
+.has-active-molecule.free-mode .results {
+  order: 3;
+}
+
+.has-active-molecule.free-mode .import-panel {
+  order: 4;
+}
+
+.has-active-molecule .import-panel {
+  padding: 12px;
 }
 
 .is-hidden {
@@ -420,10 +512,22 @@ select:focus {
 }
 
 .history li {
+  align-items: center;
   background: var(--surface-2);
   border-radius: 6px;
   color: var(--ink);
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 54px minmax(0, 1fr);
   padding: 10px;
+}
+
+.path-step img {
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  max-width: 54px;
+  padding: 4px;
 }
 
 @media (max-width: 900px) {
@@ -456,5 +560,15 @@ select:focus {
 
   .topbar {
     display: grid;
+  }
+
+  .mode-nav {
+    justify-content: stretch;
+  }
+
+  .mode-nav a,
+  .mode-nav button {
+    flex: 1;
+    text-align: center;
   }
 }

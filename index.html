@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Chem Rules</title>
+    <title>chemrulez</title>
     <link rel="stylesheet" href="./styles.css">
   </head>
   <body>
@@ -11,10 +11,14 @@
       <section class="workspace">
         <header class="topbar">
           <div>
-            <h1>Chem Rules</h1>
-            <p>Pick a synthesis puzzle or import a molecule, enter reagents, and build a path.</p>
+            <h1>chemrulez</h1>
+            <p id="modeIntro">Import a molecule, then transform it step by step.</p>
           </div>
-          <button id="resetBtn" class="ghost">Reset</button>
+          <nav class="mode-nav" aria-label="Mode">
+            <a id="freePlayLink" href="./">Free play</a>
+            <a id="puzzlesLink" href="./?mode=puzzles">Puzzles</a>
+            <button id="resetBtn" class="ghost">Reset</button>
+          </nav>
         </header>
 
         <section class="panel puzzle-panel" aria-labelledby="puzzle-title">
@@ -31,7 +35,21 @@
           <div id="puzzleDetails" class="puzzle-details"></div>
         </section>
 
-        <section class="panel reagent-panel" aria-labelledby="reagent-title">
+        <section id="importPanel" class="panel import-panel" aria-labelledby="import-title">
+          <h2 id="import-title">Molecule</h2>
+          <form id="importForm" class="input-row">
+            <input
+              id="moleculeInput"
+              name="molecule"
+              autocomplete="off"
+              placeholder="Search name, SMILES, PubChem CID, or URL"
+            >
+            <button type="submit">Import</button>
+          </form>
+          <p id="importStatus" class="status"></p>
+        </section>
+
+        <section id="reagentPanel" class="panel reagent-panel" aria-labelledby="reagent-title">
           <h2 id="reagent-title">Reagents</h2>
           <form id="reactionForm" class="input-row">
             <input
@@ -44,20 +62,6 @@
             <button id="applyBtn" type="submit" disabled>Apply</button>
           </form>
           <div id="resolvedReagent" class="resolved"></div>
-        </section>
-
-        <section id="importPanel" class="panel import-panel" aria-labelledby="import-title">
-          <h2 id="import-title">Molecule</h2>
-          <form id="importForm" class="input-row">
-            <input
-              id="moleculeInput"
-              name="molecule"
-              autocomplete="off"
-              placeholder="1-butyne, CCC#C, PubChem CID, or PubChem URL"
-            >
-            <button type="submit">Import</button>
-          </form>
-          <p id="importStatus" class="status"></p>
         </section>
 
         <section id="activeMolecule" class="molecule-view empty">
