@@ -17,6 +17,7 @@ These are good smoke tests for the first-year organic synthesis sandbox.
 - Grignard carbonyl addition: `acetaldehyde` -> `CH3MgBr then H3O+` should give a secondary alcohol.
 - Grignard carboxylation: `CO2` -> `PhMgBr then H3O+` should give benzoic acid.
 - Stereochemistry families to track later: `2-butene` -> `Br2`, `OsO4`, `mCPBA`.
+- Epoxide follow-on chemistry: alkene -> `mCPBA` -> `H3O+` should give a vicinal diol; alkene -> `mCPBA` -> `HBr` should give a bromohydrin.
 - Carbocation rearrangement fan-out: `3-methyl-1-butene` -> `H3O+` or `HBr`.
 - Bad acetylide SN2 partner: acetylide plus `tert-butyl bromide` should block and explain elimination.
 - Secondary alkyl halide warning: acetylide plus `2-bromopropane` should show competing SN2/E2.

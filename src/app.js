@@ -5,7 +5,127 @@ const state = {
   path: [],
 };
 
+const chem = {
+  fromSmiles(smiles) {
+    const graph = parseSmilesGraph(smiles);
+    const canSerialize = !graph.hasDisconnectedComponents;
+    return {
+      graph,
+      canonicalSmiles: canSerialize ? smilesFromGraph(graph) : smiles,
+      hasBondOrder(order) {
+        return graph.bonds.some((bond) => bond.order === order);
+      },
+      hasCarbonCarbonBondOrder(order) {
+        return graph.bonds.some((bond) => {
+          return bond.order === order
+            && atomElement(graph.atoms[bond.from]) === "C"
+            && atomElement(graph.atoms[bond.to]) === "C";
+        });
+      },
+      findFirstEpoxide() {
+        return findFirstEpoxide(graph);
+      },
+      saturatePiBonds() {
+        if (!canSerialize) return stripStereo(smiles).replaceAll("#", "").replaceAll("=", "");
+        const product = cloneGraph(graph);
+        for (const bond of product.bonds) {
+          if (bond.order > 1) bond.order = 1;
+        }
+        return smilesFromGraph(product);
+      },
+      epoxidizeFirstAlkene() {
+        if (!canSerialize) return null;
+        const alkene = findFirstCarbonCarbonBondOrder(graph, 2);
+        if (!alkene) return null;
+        const product = cloneGraph(graph);
+        product.bonds[alkene.bondIndex].order = 1;
+        const oxygen = addGraphAtom(product, "O");
+        addGraphBond(product.bonds, alkene.from, oxygen, 1);
+        addGraphBond(product.bonds, oxygen, alkene.to, 1);
+        return smilesFromGraph(product);
+      },
+      openFirstEpoxide(nucleophileToken, mode) {
+        if (!canSerialize) return null;
+        const epoxide = findFirstEpoxide(graph);
+        if (!epoxide) return null;
+        const attackedCarbon = epoxideAttackCarbon(graph, epoxide, mode);
+        const oxygenSideCarbon = attackedCarbon === epoxide.carbonA ? epoxide.carbonB : epoxide.carbonA;
+        const product = cloneGraph(graph);
+        removeGraphBond(product, epoxide.oxygen, attackedCarbon);
+        if (nucleophileToken) {
+          const nucleophile = addGraphAtom(product, nucleophileToken);
+          addGraphBond(product.bonds, attackedCarbon, nucleophile, 1);
+        }
+        product.root = bestRootForProduct(product, oxygenSideCarbon);
+        return smilesFromGraph(product);
+      },
+      addAcrossFirstAlkene(firstToken, secondToken, mode) {
+        if (!canSerialize) return null;
+        const alkene = findFirstCarbonCarbonBondOrder(graph, 2);
+        if (!alkene) return null;
+        const product = cloneGraph(graph);
+        product.bonds[alkene.bondIndex].order = 1;
+
+        const firstCarbon = alkeneAdditionCarbon(graph, alkene, mode);
+        const secondCarbon = firstCarbon === alkene.from ? alkene.to : alkene.from;
+        addSubstituentAtom(product, firstCarbon, firstToken);
+        addSubstituentAtom(product, secondCarbon, secondToken);
+        return smilesFromGraph(product);
+      },
+    };
+  },
+};
+
 const localMolecules = [
+  {
+    keys: ["acetylene", "ethyne"],
+    displayName: "Acetylene",
+    canonicalSmiles: "C#C",
+    formula: "C2H2",
+    molecularWeight: "26.04",
+  },
+  {
+    keys: ["1butyne", "but1yne"],
+    displayName: "1-Butyne",
+    canonicalSmiles: "CCC#C",
+    formula: "C4H6",
+    molecularWeight: "54.09",
+  },
+  {
+    keys: ["2butyne", "but2yne"],
+    displayName: "2-Butyne",
+    canonicalSmiles: "CC#CC",
+    formula: "C4H6",
+    molecularWeight: "54.09",
+  },
+  {
+    keys: ["trans2butene", "transbut2ene", "e2butene", "ebut2ene", "transbutene"],
+    displayName: "trans-2-Butene",
+    canonicalSmiles: "C/C=C/C",
+    formula: "C4H8",
+    molecularWeight: "56.11",
+  },
+  {
+    keys: ["cis2butene", "cisbut2ene", "z2butene", "zbut2ene", "cisbutene"],
+    displayName: "cis-2-Butene",
+    canonicalSmiles: "C/C=C\\C",
+    formula: "C4H8",
+    molecularWeight: "56.11",
+  },
+  {
+    keys: ["4octyne", "oct4yne"],
+    displayName: "4-Octyne",
+    canonicalSmiles: "CCCC#CCCC",
+    formula: "C8H14",
+    molecularWeight: "110.20",
+  },
+  {
+    keys: ["propene", "propylene"],
+    displayName: "Propene",
+    canonicalSmiles: "CC=C",
+    formula: "C3H6",
+    molecularWeight: "42.08",
+  },
   {
     keys: ["methyl2butene", "methylbutene", "2methyl2butene", "2methylbut2ene"],
     displayName: "2-Methyl-2-butene",
@@ -33,6 +153,20 @@ const localMolecules = [
     canonicalSmiles: "CCC(C)(C)C",
     formula: "C6H14",
     molecularWeight: "86.18",
+  },
+  {
+    keys: ["acetaldehyde", "ethanal"],
+    displayName: "Acetaldehyde",
+    canonicalSmiles: "CC=O",
+    formula: "C2H4O",
+    molecularWeight: "44.05",
+  },
+  {
+    keys: ["co2", "carbondioxide"],
+    displayName: "Carbon dioxide",
+    canonicalSmiles: "O=C=O",
+    formula: "CO2",
+    molecularWeight: "44.01",
   },
 ];
 
@@ -140,6 +274,12 @@ const reagentAliases = [
     canonical: "H3O+",
     kind: "acid-catalyzed alkene hydration",
     aliases: ["h3o+", "h2so4 h2o", "h2o h2so4", "acid hydration", "aqueous acid"],
+  },
+  {
+    id: "hydroxide",
+    canonical: "NaOH, H2O",
+    kind: "hydroxide nucleophile",
+    aliases: ["naoh", "oh-", "hydroxide", "aqueous hydroxide", "naoh h2o", "koh", "koh h2o"],
   },
   {
     id: "alkene_oxymercuration",
@@ -291,7 +431,7 @@ async function fetchMolecule(request, rawInput) {
 
   const data = await response.json();
   const props = data?.PropertyTable?.Properties?.[0];
-  const smiles = props?.CanonicalSMILES || props?.ConnectivitySMILES;
+  const smiles = props?.IsomericSMILES || props?.CanonicalSMILES || props?.ConnectivitySMILES;
   if (!smiles) {
     throw new Error(`PubChem did not return a usable structure for "${rawInput}".`);
   }
@@ -367,10 +507,11 @@ function localMoleculeFromInput(input) {
 }
 
 function selectMolecule(molecule, pathLabel) {
-  state.active = molecule;
+  state.active = withChemMetadata(molecule);
   state.path.push({
     label: pathLabel,
-    smiles: molecule.canonicalSmiles,
+    smiles: state.active.canonicalSmiles,
+    structureKey: state.active.structureKey,
   });
   els.reagentInput.disabled = false;
   els.applyBtn.disabled = false;
@@ -405,6 +546,7 @@ function renderMolecule() {
         <h2 class="molecule-name">${escapeHtml(molecule.displayName)}</h2>
         <div class="meta-grid">
           ${metaItem("Canonical SMILES", molecule.canonicalSmiles)}
+          ${metaItem("Graph key", molecule.structureKey || molecule.canonicalSmiles)}
           ${metaItem("Formula", molecule.formula || "unknown")}
           ${metaItem("Molecular weight", molecule.molecularWeight || "unknown")}
           ${molecule.cid ? metaItem("PubChem CID", molecule.cid) : ""}
@@ -423,6 +565,15 @@ function metaItem(label, value) {
   `;
 }
 
+function withChemMetadata(molecule) {
+  const parsed = moleculeFromSmiles(molecule.canonicalSmiles);
+  return {
+    ...molecule,
+    structureKey: parsed.canonicalSmiles,
+    structureEngine: "local graph",
+  };
+}
+
 function renderPath() {
   if (!state.path.length) {
     els.pathList.innerHTML = `<li class="muted">No steps yet.</li>`;
@@ -430,7 +581,15 @@ function renderPath() {
   }
 
   els.pathList.innerHTML = state.path
-    .map((step) => `<li><strong>${escapeHtml(step.label)}</strong><br><code>${escapeHtml(step.smiles)}</code></li>`)
+    .map((step) => `
+      <li>
+        <strong>${escapeHtml(step.label)}</strong><br>
+        <code>${escapeHtml(step.smiles)}</code>
+        ${step.structureKey && step.structureKey !== step.smiles
+          ? `<br><small>graph: <code>${escapeHtml(step.structureKey)}</code></small>`
+          : ""}
+      </li>
+    `)
     .join("");
 }
 
@@ -611,6 +770,11 @@ function findReactionCandidates(molecule, resolution) {
 
   if (grignard && (hasCarbonyl(molecule.canonicalSmiles) || isCarbonDioxide(molecule.canonicalSmiles))) {
     return grignardReactionCandidates(molecule, grignard);
+  }
+
+  if (hasEpoxide(molecule.canonicalSmiles)) {
+    const epoxideCandidates = epoxideReactionCandidates(molecule, reagentIds);
+    if (epoxideCandidates.length) return epoxideCandidates;
   }
 
   if (hasAlkyne(molecule.canonicalSmiles)) {
@@ -888,17 +1052,21 @@ function alkeneReactionCandidates(molecule, reagentIds) {
   }
 
   if (reagentIds.has("mcpba")) {
+    const productSmiles = epoxidizeFirstAlkene(smiles);
     return [
       candidate({
         id: "alkene_epoxidation",
         label: "Epoxide",
         productName: `${molecule.displayName} epoxide`,
-        productSmiles: smiles,
-        bucket: "moderate",
-        confidence: 0.62,
+        productSmiles: productSmiles || smiles,
+        bucket: productSmiles ? "high" : "moderate",
+        confidence: productSmiles ? 0.78 : 0.52,
         explanation: [
           "mCPBA epoxidizes alkenes in one concerted step.",
-          "The current string prototype cannot draw the epoxide product reliably yet, so it keeps the substrate structure and records the transformation.",
+          productSmiles
+            ? "The product is generated by converting the alkene bond to a single bond and adding an oxygen bridge across those two carbons."
+            : "The graph engine could not serialize this alkene yet, so the substrate is shown as a placeholder.",
+          "Stereochemistry is not yet tracked explicitly.",
         ],
       }),
     ];
@@ -916,7 +1084,67 @@ function alkeneReactionCandidates(molecule, reagentIds) {
         explanation: [
           "OsO4 performs syn dihydroxylation of alkenes.",
           "Cold dilute KMnO4 is treated similarly for first-year synthesis planning.",
+          "The app does not yet encode the stereochemical relationship in the product SMILES, so cis/trans alkene inputs currently converge to a constitution-only vicinal diol.",
+        ],
+      }),
+    ];
+  }
+
+  return [];
+}
+
+function epoxideReactionCandidates(molecule, reagentIds) {
+  const smiles = molecule.canonicalSmiles;
+
+  if (reagentIds.has("acid_hydration")) {
+    return [
+      candidate({
+        id: "epoxide_acidic_hydrolysis",
+        label: "Acid-catalyzed epoxide opening to vicinal diol",
+        productName: `${molecule.displayName} diol`,
+        productSmiles: openFirstEpoxide(smiles, "O", "acid"),
+        bucket: "high",
+        confidence: 0.76,
+        explanation: [
+          "Aqueous acid activates the epoxide toward ring opening.",
+          "Water opens the strained three-membered ring and workup gives a vicinal diol.",
+          "Stereochemistry is not yet drawn explicitly; textbook products are anti/trans for cyclic cases.",
+        ],
+      }),
+    ];
+  }
+
+  if (reagentIds.has("hbr")) {
+    return [
+      candidate({
+        id: "epoxide_hbr_halohydrin",
+        label: "Acidic epoxide opening to bromohydrin",
+        productName: `${molecule.displayName} bromohydrin`,
+        productSmiles: openFirstEpoxide(smiles, "Br", "acid"),
+        bucket: "high",
+        confidence: 0.72,
+        explanation: [
+          "HX opens epoxides under acidic conditions to give halohydrins.",
+          "For unsymmetrical epoxides, the acid-promoted opening is biased toward attack at the more substituted carbon.",
           "Stereochemistry is not yet drawn explicitly.",
+        ],
+      }),
+    ];
+  }
+
+  if (reagentIds.has("hydroxide")) {
+    return [
+      candidate({
+        id: "epoxide_basic_hydrolysis",
+        label: "Basic epoxide opening to vicinal diol",
+        productName: `${molecule.displayName} diol`,
+        productSmiles: openFirstEpoxide(smiles, "O", "basic"),
+        bucket: "high",
+        confidence: 0.74,
+        explanation: [
+          "Strong nucleophiles open epoxides by SN2-like attack.",
+          "For unsymmetrical epoxides under basic conditions, attack is favored at the less substituted carbon.",
+          "Protonation after workup gives the vicinal diol.",
         ],
       }),
     ];
@@ -1020,13 +1248,315 @@ function candidate(options) {
   return options;
 }
 
+function parseSmilesGraph(smiles) {
+  const atoms = [];
+  const bonds = [];
+  const branchStack = [];
+  const ringClosures = new Map();
+  let currentAtom = null;
+  let pendingBondOrder = 1;
+  let hasRings = false;
+  let hasDisconnectedComponents = false;
+
+  for (let index = 0; index < smiles.length;) {
+    const char = smiles[index];
+
+    if (char === "(") {
+      if (currentAtom === null) throw new Error(`SMILES branch has no parent: ${smiles}`);
+      branchStack.push(currentAtom);
+      index += 1;
+      continue;
+    }
+
+    if (char === ")") {
+      if (!branchStack.length) throw new Error(`SMILES branch closes without opening: ${smiles}`);
+      currentAtom = branchStack.pop();
+      index += 1;
+      continue;
+    }
+
+    if (char === "=" || char === "#") {
+      pendingBondOrder = char === "=" ? 2 : 3;
+      index += 1;
+      continue;
+    }
+
+    if (char === "/" || char === "\\") {
+      index += 1;
+      continue;
+    }
+
+    if (/\d/.test(char)) {
+      if (currentAtom === null) throw new Error(`SMILES ring marker has no atom: ${smiles}`);
+      const opening = ringClosures.get(char);
+      if (opening) {
+        addGraphBond(bonds, opening.atom, currentAtom, opening.order || pendingBondOrder);
+        ringClosures.delete(char);
+        hasRings = true;
+      } else {
+        ringClosures.set(char, { atom: currentAtom, order: pendingBondOrder });
+      }
+      pendingBondOrder = 1;
+      index += 1;
+      continue;
+    }
+
+    if (char === ".") {
+      currentAtom = null;
+      hasDisconnectedComponents = true;
+      pendingBondOrder = 1;
+      index += 1;
+      continue;
+    }
+
+    const atomToken = readSmilesAtom(smiles, index);
+    if (!atomToken) throw new Error(`Unsupported SMILES token "${char}" in ${smiles}`);
+
+    const atomIndex = atoms.length;
+    atoms.push({ id: atomIndex, token: atomToken.token });
+    if (currentAtom !== null) addGraphBond(bonds, currentAtom, atomIndex, pendingBondOrder);
+    currentAtom = atomIndex;
+    pendingBondOrder = 1;
+    index += atomToken.length;
+  }
+
+  if (branchStack.length) throw new Error(`SMILES branch left open: ${smiles}`);
+  if (ringClosures.size) throw new Error(`SMILES ring left open: ${smiles}`);
+  return {
+    atoms,
+    bonds,
+    root: atoms[0]?.id ?? null,
+    hasRings,
+    hasDisconnectedComponents,
+  };
+}
+
+function readSmilesAtom(smiles, index) {
+  const bracket = smiles[index] === "[" ? smiles.slice(index).match(/^\[[^\]]+\]/) : null;
+  if (bracket) return { token: bracket[0], length: bracket[0].length };
+
+  const twoChar = smiles.slice(index, index + 2);
+  if (["Cl", "Br"].includes(twoChar)) return { token: twoChar, length: 2 };
+
+  const char = smiles[index];
+  if (/[BCNOPSFHIbcno]/.test(char)) return { token: char, length: 1 };
+  return null;
+}
+
+function addGraphBond(bonds, from, to, order) {
+  bonds.push({ from, to, order });
+}
+
+function removeGraphBond(graph, atomA, atomB) {
+  const index = graph.bonds.findIndex((bond) => {
+    return (bond.from === atomA && bond.to === atomB) || (bond.from === atomB && bond.to === atomA);
+  });
+  if (index >= 0) graph.bonds.splice(index, 1);
+}
+
+function addGraphAtom(graph, token) {
+  const atomIndex = graph.atoms.length;
+  graph.atoms.push({ id: atomIndex, token });
+  return atomIndex;
+}
+
+function addSubstituentAtom(graph, atomIndex, token) {
+  if (!token) return null;
+  const substituent = addGraphAtom(graph, token);
+  addGraphBond(graph.bonds, atomIndex, substituent, 1);
+  return substituent;
+}
+
+function cloneGraph(graph) {
+  return {
+    atoms: graph.atoms.map((atom) => ({ ...atom })),
+    bonds: graph.bonds.map((bond) => ({ ...bond })),
+    root: graph.root,
+    hasRings: graph.hasRings,
+    hasDisconnectedComponents: graph.hasDisconnectedComponents,
+  };
+}
+
+function findFirstCarbonCarbonBondOrder(graph, order) {
+  const bondIndex = graph.bonds.findIndex((bond) => {
+    return bond.order === order
+      && atomElement(graph.atoms[bond.from]) === "C"
+      && atomElement(graph.atoms[bond.to]) === "C";
+  });
+  if (bondIndex < 0) return null;
+  return { ...graph.bonds[bondIndex], bondIndex };
+}
+
+function findFirstEpoxide(graph) {
+  for (const oxygen of graph.atoms.filter((atom) => atomElement(atom) === "O")) {
+    const carbonNeighbors = graphNeighbors(graph, oxygen.id)
+      .filter((neighbor) => atomElement(graph.atoms[neighbor.atomIndex]) === "C");
+    if (carbonNeighbors.length !== 2) continue;
+    const [carbonA, carbonB] = carbonNeighbors.map((neighbor) => neighbor.atomIndex);
+    if (graphBondBetween(graph, carbonA, carbonB)) {
+      return { oxygen: oxygen.id, carbonA, carbonB };
+    }
+  }
+  return null;
+}
+
+function graphBondBetween(graph, atomA, atomB) {
+  return graph.bonds.find((bond) => {
+    return (bond.from === atomA && bond.to === atomB) || (bond.from === atomB && bond.to === atomA);
+  }) || null;
+}
+
+function epoxideAttackCarbon(graph, epoxide, mode) {
+  const scoreA = carbonSubstitutionScore(graph, epoxide.carbonA, epoxide);
+  const scoreB = carbonSubstitutionScore(graph, epoxide.carbonB, epoxide);
+  if (mode === "acid") return scoreA >= scoreB ? epoxide.carbonA : epoxide.carbonB;
+  return scoreA <= scoreB ? epoxide.carbonA : epoxide.carbonB;
+}
+
+function alkeneAdditionCarbon(graph, alkene, mode) {
+  if (mode === "both") return alkene.from;
+  const scoreFrom = alkeneSubstitutionScore(graph, alkene.from, alkene);
+  const scoreTo = alkeneSubstitutionScore(graph, alkene.to, alkene);
+  if (mode === "anti") return scoreFrom <= scoreTo ? alkene.from : alkene.to;
+  return scoreFrom >= scoreTo ? alkene.from : alkene.to;
+}
+
+function alkeneSubstitutionScore(graph, atomIndex, alkene) {
+  const otherAlkeneCarbon = atomIndex === alkene.from ? alkene.to : alkene.from;
+  return graphNeighbors(graph, atomIndex)
+    .filter((neighbor) => neighbor.atomIndex !== otherAlkeneCarbon)
+    .filter((neighbor) => atomElement(graph.atoms[neighbor.atomIndex]) === "C")
+    .length;
+}
+
+function carbonSubstitutionScore(graph, atomIndex, epoxide) {
+  const excluded = new Set([epoxide.oxygen, epoxide.carbonA, epoxide.carbonB]);
+  return graphNeighbors(graph, atomIndex)
+    .filter((neighbor) => !excluded.has(neighbor.atomIndex))
+    .filter((neighbor) => atomElement(graph.atoms[neighbor.atomIndex]) === "C")
+    .length;
+}
+
+function bestRootForProduct(graph, preferredRoot) {
+  const carbonWithExternalNeighbor = graph.atoms.find((atom) => {
+    return atomElement(atom) === "C"
+      && atom.id !== preferredRoot
+      && graphNeighbors(graph, atom.id).some((neighbor) => atomElement(graph.atoms[neighbor.atomIndex]) === "C");
+  });
+  return carbonWithExternalNeighbor?.id ?? preferredRoot ?? graph.root;
+}
+
+function atomElement(atom) {
+  const token = atom.token.replace(/^\[/, "").replace(/\]$/, "");
+  const match = token.match(/^[A-Z][a-z]?|^[a-z]/);
+  if (!match) return "";
+  return match[0].toUpperCase();
+}
+
+function smilesFromGraph(graph) {
+  if (graph.root === null) return "";
+  const tree = spanningTreeForGraph(graph);
+  const ringLabels = ringLabelsForGraph(graph, tree.treeBondIndexes);
+  return smilesFromAtom(graph, graph.root, null, tree.children, ringLabels);
+}
+
+function spanningTreeForGraph(graph) {
+  const visitedAtoms = new Set([graph.root]);
+  const treeBondIndexes = new Set();
+  const children = new Map(graph.atoms.map((atom) => [atom.id, []]));
+
+  function walk(atomIndex) {
+    for (const neighbor of graphNeighbors(graph, atomIndex)) {
+      if (visitedAtoms.has(neighbor.atomIndex)) continue;
+      visitedAtoms.add(neighbor.atomIndex);
+      treeBondIndexes.add(neighbor.bondIndex);
+      children.get(atomIndex).push(neighbor);
+      walk(neighbor.atomIndex);
+    }
+  }
+
+  walk(graph.root);
+  return { children, treeBondIndexes };
+}
+
+function graphNeighbors(graph, atomIndex) {
+  return graph.bonds
+    .map((bond, bondIndex) => ({ bond, bondIndex }))
+    .filter(({ bond }) => bond.from === atomIndex || bond.to === atomIndex)
+    .map(({ bond, bondIndex }) => ({
+      bond,
+      bondIndex,
+      atomIndex: bond.from === atomIndex ? bond.to : bond.from,
+    }));
+}
+
+function ringLabelsForGraph(graph, treeBondIndexes) {
+  let nextRingDigit = 1;
+  const labels = new Map(graph.atoms.map((atom) => [atom.id, []]));
+
+  graph.bonds.forEach((bond, bondIndex) => {
+    if (treeBondIndexes.has(bondIndex)) return;
+    const digit = nextRingDigit;
+    nextRingDigit += 1;
+    labels.get(bond.from).push({ digit, order: bond.order });
+    labels.get(bond.to).push({ digit, order: bond.order });
+  });
+
+  return labels;
+}
+
+function smilesFromAtom(graph, atomIndex, parentIndex, children, ringLabels) {
+  const atom = graph.atoms[atomIndex];
+  const neighbors = children.get(atomIndex) || [];
+  const mainNeighbor = neighbors[0];
+  const branchNeighbors = neighbors.slice(1);
+  let smiles = `${atom.token}${ringLabelsForAtom(ringLabels, atomIndex)}`;
+
+  for (const neighbor of branchNeighbors) {
+    smiles += `(${bondSymbol(neighbor.bond.order)}${smilesFromAtom(
+      graph,
+      neighbor.atomIndex,
+      atomIndex,
+      children,
+      ringLabels,
+    )})`;
+  }
+
+  if (mainNeighbor) {
+    smiles += `${bondSymbol(mainNeighbor.bond.order)}${smilesFromAtom(
+      graph,
+      mainNeighbor.atomIndex,
+      atomIndex,
+      children,
+      ringLabels,
+    )}`;
+  }
+
+  return smiles;
+}
+
+function ringLabelsForAtom(ringLabels, atomIndex) {
+  return (ringLabels.get(atomIndex) || [])
+    .map((label) => `${bondSymbol(label.order)}${label.digit}`)
+    .join("");
+}
+
+function bondSymbol(order) {
+  if (order === 2) return "=";
+  if (order === 3) return "#";
+  return "";
+}
+
 function hasAlkyne(smiles) {
-  return smiles.includes("#");
+  return moleculeFromSmiles(smiles).hasCarbonCarbonBondOrder(3);
 }
 
 function hasAlkene(smiles) {
-  const clean = stripStereo(smiles);
-  return clean.includes("C=C") || /C\([^)]*\)=C/.test(clean);
+  return moleculeFromSmiles(smiles).hasCarbonCarbonBondOrder(2);
+}
+
+function hasEpoxide(smiles) {
+  return Boolean(moleculeFromSmiles(smiles).findFirstEpoxide());
 }
 
 function stripStereo(smiles) {
@@ -1056,7 +1586,61 @@ function reduceTripleToDoubleStereo(smiles, geometry) {
 }
 
 function fullyHydrogenate(smiles) {
+  return moleculeFromSmiles(smiles).saturatePiBonds();
+}
+
+function epoxidizeFirstAlkene(smiles) {
+  return moleculeFromSmiles(smiles).epoxidizeFirstAlkene();
+}
+
+function addAcrossFirstAlkene(smiles, firstGroup, secondGroup, mode) {
+  return moleculeFromSmiles(smiles).addAcrossFirstAlkene(
+    groupToAtomToken(firstGroup),
+    groupToAtomToken(secondGroup),
+    mode,
+  );
+}
+
+function openFirstEpoxide(smiles, nucleophileToken, mode) {
+  return moleculeFromSmiles(smiles).openFirstEpoxide(nucleophileToken, mode);
+}
+
+function saturatePiBondText(smiles) {
   return stripStereo(smiles).replaceAll("#", "").replaceAll("=", "");
+}
+
+function moleculeFromSmiles(smiles) {
+  try {
+    return chem.fromSmiles(smiles);
+  } catch (error) {
+    return {
+      canonicalSmiles: smiles,
+      hasBondOrder(order) {
+        const clean = stripStereo(smiles);
+        return order === 3 ? clean.includes("#") : clean.includes("=");
+      },
+      hasCarbonCarbonBondOrder(order) {
+        const clean = stripStereo(smiles);
+        if (order === 3) return /C#C|c#c/i.test(clean);
+        return /C=C|c=c|C\([^)]*\)=C/i.test(clean);
+      },
+      saturatePiBonds() {
+        return saturatePiBondText(smiles);
+      },
+      epoxidizeFirstAlkene() {
+        return null;
+      },
+      addAcrossFirstAlkene() {
+        return null;
+      },
+      openFirstEpoxide() {
+        return null;
+      },
+      findFirstEpoxide() {
+        return null;
+      },
+    };
+  }
 }
 
 function hydrateAlkyneMarkovnikov(smiles) {
@@ -1176,55 +1760,16 @@ function grignardOrganoFragment(smiles, input) {
   return null;
 }
 
-function addAcrossFirstAlkene(smiles, firstGroup, secondGroup, mode) {
-  const clean = stripStereo(smiles);
-  const index = clean.indexOf("=");
-  if (index < 0) return clean;
-
-  const left = clean.slice(0, index);
-  const right = clean.slice(index + 1);
-  const leftScore = carbonCount(left);
-  const rightScore = carbonCount(right);
-  const groupSide = mode === "anti"
-    ? (leftScore <= rightScore ? "left" : "right")
-    : (leftScore >= rightScore ? "left" : "right");
-
-  if (mode === "both") {
-    return `${attachToLeftAlkeneCarbon(left, firstGroup)}${attachToRightAlkeneCarbon(right, secondGroup)}`;
-  }
-
-  const leftGroup = groupSide === "left" ? firstGroup : secondGroup;
-  const rightGroup = groupSide === "right" ? firstGroup : secondGroup;
-  return `${attachToLeftAlkeneCarbon(left, leftGroup)}${attachToRightAlkeneCarbon(right, rightGroup)}`;
-}
-
-function attachToLeftAlkeneCarbon(fragment, group) {
-  const atom = groupToSmiles(group);
-  if (!atom) return fragment;
-  if (fragment.endsWith("C")) return `${fragment}(${atom})`;
-  return `${fragment}C(${atom})`;
-}
-
-function attachToRightAlkeneCarbon(fragment, group) {
-  const atom = groupToSmiles(group);
-  if (!atom) return fragment;
-  if (fragment.startsWith("C")) return `C(${atom})${fragment.slice(1)}`;
-  return `C(${atom})${fragment}`;
-}
-
-function groupToSmiles(group) {
+function groupToAtomToken(group) {
   if (!group || group === "H") return "";
   if (group === "OH") return "O";
   return group;
 }
 
-function carbonCount(fragment) {
-  return (fragment.match(/C/g) || []).length + (fragment.match(/c/g) || []).length;
-}
-
 function rearrangedCarbocationProduct(smiles, group) {
   const clean = stripStereo(smiles);
-  const atom = groupToSmiles(group);
+  const atom = groupToAtomToken(group);
+  if (clean === "CC=C(C)C") return null;
   if (clean === "CC(C)(C)C=C" || clean === "C=CC(C)(C)C") {
     return {
       productSmiles: `CC(C)C(${atom})(C)C`,
@@ -1242,7 +1787,7 @@ function rearrangedCarbocationProduct(smiles, group) {
   const branchedSide = [left, right].find((side) => /\(C\)|\(CC\)|\(CCC\)/.test(side));
   if (!branchedSide) return null;
 
-  const saturated = fullyHydrogenate(clean);
+  const saturated = saturatePiBondText(clean);
   const branchIndex = saturated.indexOf("(C)");
   if (branchIndex < 0) return null;
   return {
