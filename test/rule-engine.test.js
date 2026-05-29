@@ -185,6 +185,19 @@ const tests = [
     },
   },
   {
+    name: "PubChem links prefer CID then fall back to SMILES search",
+    run() {
+      assert.equal(
+        context.pubChemUrlForMolecule({ cid: 7846, canonicalSmiles: "CCC#C" }),
+        "https://pubchem.ncbi.nlm.nih.gov/compound/7846",
+      );
+      assert.equal(
+        context.pubChemUrlForSmiles("CC/C=C\\CC"),
+        "https://pubchem.ncbi.nlm.nih.gov/#query=CC%2FC%3DC%5CCC",
+      );
+    },
+  },
+  {
     name: "mercuric alkyne hydration gives ketone candidate",
     run() {
       const [candidate] = productsFor("CCC#C", HgHydration);

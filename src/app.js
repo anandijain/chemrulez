@@ -579,6 +579,7 @@ function selectMolecule(molecule, pathLabel) {
     smiles: state.active.canonicalSmiles,
     structureKey: state.active.structureKey,
     imageUrl: state.active.imageUrl || imageUrlForSmiles(state.active.canonicalSmiles),
+    pubchemUrl: pubChemUrlForMolecule(state.active),
   });
   updatePuzzleSolvedState();
   els.reagentInput.disabled = false;
@@ -641,6 +642,7 @@ function withChemMetadata(molecule) {
     ...molecule,
     structureKey: parsed.canonicalSmiles,
     structureEngine: "local graph",
+    pubchemUrl: molecule.pubchemUrl || pubChemUrlForMolecule(molecule),
   };
 }
 
@@ -695,6 +697,7 @@ function renderPuzzle() {
       <div>
         <strong>${escapeHtml(state.puzzle.startName)} -> ${escapeHtml(state.puzzle.targetName)}</strong>
         <p>${escapeHtml(state.puzzle.tier)} / ${escapeHtml(state.puzzle.source)}</p>
+        <p><a href="${pubChemUrlForMolecule(target)}" target="_blank" rel="noreferrer">Open target in PubChem</a></p>
         <details class="puzzle-hints">
           <summary>Hints</summary>
           <p>Target key: <code>${escapeHtml(target.canonicalSmiles)}</code></p>
@@ -732,6 +735,7 @@ function renderPath() {
           ${step.structureKey && step.structureKey !== step.smiles
             ? `<br><small>graph: <code>${escapeHtml(step.structureKey)}</code></small>`
             : ""}
+          <br><a href="${step.pubchemUrl || pubChemUrlForSmiles(step.structureKey || step.smiles)}" target="_blank" rel="noreferrer">PubChem</a>
         </div>
       </li>
     `)
@@ -2071,6 +2075,7 @@ function renderCandidates(candidates, resolution) {
             <span class="tag ${candidate.bucket}">${escapeHtml(candidate.bucket)}</span>
             <h3>${escapeHtml(candidate.label)}</h3>
             <p><code>${escapeHtml(candidate.productSmiles)}</code></p>
+            <p><a href="${pubChemUrlForSmiles(candidate.productSmiles)}" target="_blank" rel="noreferrer">Open in PubChem</a></p>
             <ul>
               ${candidate.explanation.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
             </ul>
@@ -2148,6 +2153,15 @@ function imageUrlForCid(cid) {
 
 function imageUrlForSmiles(smiles) {
   return `${pubchemBase}/compound/smiles/PNG?smiles=${encodeURIComponent(smiles)}&image_size=large`;
+}
+
+function pubChemUrlForMolecule(molecule) {
+  if (molecule.cid) return `https://pubchem.ncbi.nlm.nih.gov/compound/${encodeURIComponent(molecule.cid)}`;
+  return pubChemUrlForSmiles(molecule.structureKey || molecule.canonicalSmiles);
+}
+
+function pubChemUrlForSmiles(smiles) {
+  return `https://pubchem.ncbi.nlm.nih.gov/#query=${encodeURIComponent(smiles)}`;
 }
 
 function normalizeText(value) {

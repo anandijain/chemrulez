@@ -457,6 +457,13 @@ select:focus {
   margin: 0 0 8px;
 }
 
+.candidate a,
+.path-step a,
+.puzzle-target a {
+  color: var(--accent-dark);
+  font-weight: 700;
+}
+
 .candidate ul {
   margin: 10px 0 0;
   padding-left: 18px;
