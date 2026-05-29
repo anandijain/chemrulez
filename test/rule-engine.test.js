@@ -26,6 +26,20 @@ const context = {
   fetch: async () => {
     throw new Error("Network access is not used in rule tests");
   },
+  synthesisPuzzles: [
+    {
+      id: "test-propene-to-epoxide",
+      title: "Propene to propylene oxide",
+      tier: "Core alkenes",
+      source: "test",
+      startName: "Propene",
+      startSmiles: "CC=C",
+      targetName: "Propylene oxide",
+      targetSmiles: "CC1CO1",
+      maxSteps: 1,
+      allowedReagents: ["mCPBA"],
+    },
+  ],
   document: {
     querySelector() {
       return makeElement();
@@ -40,7 +54,8 @@ const context = {
 
 vm.createContext(context);
 vm.runInContext(
-  fs.readFileSync(path.join(__dirname, "../src/app.js"), "utf8"),
+  fs.readFileSync(path.join(__dirname, "../src/app.js"), "utf8")
+    .replace('import { synthesisPuzzles } from "./puzzles.js";', ""),
   context,
   { filename: "src/app.js" },
 );
@@ -256,6 +271,17 @@ const tests = [
       assert.equal(candidate.label, "Epoxide");
       assert.equal(candidate.bucket, "high");
       assert.equal(candidate.productSmiles, "CC1CO1");
+    },
+  },
+  {
+    name: "puzzle target matching uses graph structure keys",
+    run() {
+      const target = context.moleculeFromPuzzleRole(context.synthesisPuzzles[0], "target");
+      const product = context.withChemMetadata({
+        displayName: "candidate",
+        canonicalSmiles: "CC1CO1",
+      });
+      assert.equal(context.structuresMatch(product, target), true);
     },
   },
   {

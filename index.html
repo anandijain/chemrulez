@@ -12,10 +12,24 @@
         <header class="topbar">
           <div>
             <h1>Chem Rules</h1>
-            <p>Import a molecule, enter reagents, and pick the product path you want to continue.</p>
+            <p>Pick a synthesis puzzle or import a molecule, enter reagents, and build a path.</p>
           </div>
           <button id="resetBtn" class="ghost">Reset</button>
         </header>
+
+        <section class="panel puzzle-panel" aria-labelledby="puzzle-title">
+          <div class="section-heading">
+            <h2 id="puzzle-title">Puzzle</h2>
+            <span id="puzzleStatus" class="status-inline">Free play</span>
+          </div>
+          <div class="puzzle-picker">
+            <select id="puzzleSelect" aria-label="Choose synthesis puzzle">
+              <option value="">Free play</option>
+            </select>
+            <button id="startPuzzleBtn" type="button">Start</button>
+          </div>
+          <div id="puzzleDetails" class="puzzle-details"></div>
+        </section>
 
         <section class="panel import-panel" aria-labelledby="import-title">
           <h2 id="import-title">Molecule</h2>

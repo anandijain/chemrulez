@@ -1,8 +1,13 @@
+import { synthesisPuzzles } from "./puzzles.js";
+
 const pubchemBase = "https://pubchem.ncbi.nlm.nih.gov/rest/pug";
 
 const state = {
   active: null,
   path: [],
+  puzzle: null,
+  target: null,
+  solved: false,
 };
 
 const chem = {
@@ -174,6 +179,10 @@ const els = {
   importForm: document.querySelector("#importForm"),
   moleculeInput: document.querySelector("#moleculeInput"),
   importStatus: document.querySelector("#importStatus"),
+  puzzleSelect: document.querySelector("#puzzleSelect"),
+  startPuzzleBtn: document.querySelector("#startPuzzleBtn"),
+  puzzleDetails: document.querySelector("#puzzleDetails"),
+  puzzleStatus: document.querySelector("#puzzleStatus"),
   activeMolecule: document.querySelector("#activeMolecule"),
   reagentForm: document.querySelector("#reactionForm"),
   reagentInput: document.querySelector("#reagentInput"),
@@ -374,14 +383,25 @@ els.reagentInput.addEventListener("input", () => {
 els.resetBtn.addEventListener("click", () => {
   state.active = null;
   state.path = [];
+  state.puzzle = null;
+  state.target = null;
+  state.solved = false;
+  els.puzzleSelect.value = "";
   els.moleculeInput.value = "";
   els.reagentInput.value = "";
   els.reagentInput.disabled = true;
   els.applyBtn.disabled = true;
   els.results.innerHTML = "";
   els.resolvedReagent.innerHTML = "";
+  renderPuzzle();
   renderMolecule();
   renderPath();
+});
+
+els.startPuzzleBtn.addEventListener("click", () => {
+  const puzzle = synthesisPuzzles.find((item) => item.id === els.puzzleSelect.value);
+  if (puzzle) startPuzzle(puzzle);
+  else clearPuzzle();
 });
 
 document.querySelectorAll("[data-example]").forEach((button) => {
@@ -506,6 +526,45 @@ function localMoleculeFromInput(input) {
   };
 }
 
+function moleculeFromPuzzleRole(puzzle, role) {
+  const prefix = role === "target" ? "target" : "start";
+  const smiles = puzzle[`${prefix}Smiles`];
+  const name = puzzle[`${prefix}Name`];
+  return withChemMetadata({
+    id: `puzzle:${puzzle.id}:${role}`,
+    cid: null,
+    input: smiles,
+    inputType: "smiles",
+    displayName: name,
+    canonicalSmiles: smiles,
+    isomericSmiles: smiles,
+    formula: "puzzle",
+    molecularWeight: "puzzle",
+    imageUrl: imageUrlForSmiles(smiles),
+  });
+}
+
+function startPuzzle(puzzle) {
+  state.puzzle = puzzle;
+  state.target = moleculeFromPuzzleRole(puzzle, "target");
+  state.solved = false;
+  state.active = null;
+  state.path = [];
+  els.results.innerHTML = "";
+  els.resolvedReagent.innerHTML = "";
+  els.reagentInput.value = "";
+  selectMolecule(moleculeFromPuzzleRole(puzzle, "start"), `Started puzzle: ${puzzle.title}`);
+  setImportStatus(`Puzzle loaded: ${puzzle.startName} -> ${puzzle.targetName}.`);
+  renderPuzzle();
+}
+
+function clearPuzzle() {
+  state.puzzle = null;
+  state.target = null;
+  state.solved = false;
+  renderPuzzle();
+}
+
 function selectMolecule(molecule, pathLabel) {
   state.active = withChemMetadata(molecule);
   state.path.push({
@@ -513,10 +572,12 @@ function selectMolecule(molecule, pathLabel) {
     smiles: state.active.canonicalSmiles,
     structureKey: state.active.structureKey,
   });
+  updatePuzzleSolvedState();
   els.reagentInput.disabled = false;
   els.applyBtn.disabled = false;
   renderMolecule();
   renderPath();
+  renderPuzzle();
 }
 
 function renderMolecule() {
@@ -572,6 +633,51 @@ function withChemMetadata(molecule) {
     structureKey: parsed.canonicalSmiles,
     structureEngine: "local graph",
   };
+}
+
+function populatePuzzleSelect() {
+  els.puzzleSelect.innerHTML = `
+    <option value="">Free play</option>
+    ${synthesisPuzzles
+      .map((puzzle) => `<option value="${escapeHtml(puzzle.id)}">${escapeHtml(puzzle.title)}</option>`)
+      .join("")}
+  `;
+}
+
+function renderPuzzle() {
+  if (!state.puzzle) {
+    els.puzzleStatus.textContent = "Free play";
+    els.puzzleStatus.className = "status-inline";
+    els.puzzleDetails.innerHTML = "";
+    return;
+  }
+
+  const target = state.target;
+  const stepCount = Math.max(0, state.path.length - 1);
+  els.puzzleStatus.textContent = state.solved ? "Solved" : `${stepCount}/${state.puzzle.maxSteps} steps`;
+  els.puzzleStatus.className = `status-inline ${state.solved ? "solved" : ""}`;
+  els.puzzleDetails.innerHTML = `
+    <div class="puzzle-target">
+      <img src="${target.imageUrl}" alt="Target structure for ${escapeHtml(target.displayName)}">
+      <div>
+        <strong>${escapeHtml(state.puzzle.startName)} -> ${escapeHtml(state.puzzle.targetName)}</strong>
+        <p><code>${escapeHtml(target.canonicalSmiles)}</code></p>
+        <p>${escapeHtml(state.puzzle.tier)} · ${escapeHtml(state.puzzle.source)}</p>
+        <div class="allowed-reagents">
+          ${state.puzzle.allowedReagents.map((reagent) => `<span class="pill">${escapeHtml(reagent)}</span>`).join("")}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function updatePuzzleSolvedState() {
+  if (!state.puzzle || !state.target || !state.active) return;
+  state.solved = structuresMatch(state.active, state.target);
+}
+
+function structuresMatch(left, right) {
+  return left.structureKey === right.structureKey;
 }
 
 function renderPath() {
@@ -1955,9 +2061,22 @@ function renderCandidates(candidates, resolution) {
       els.results.innerHTML = "";
       els.reagentInput.value = "";
       els.resolvedReagent.innerHTML = "";
-      setImportStatus(`Selected ${candidate.label}.`);
+      setImportStatus(
+        state.solved
+          ? `Solved ${state.puzzle.title}.`
+          : puzzleProgressMessage(candidate),
+      );
     });
   });
+}
+
+function puzzleProgressMessage(candidate) {
+  if (!state.puzzle) return `Selected ${candidate.label}.`;
+  const stepCount = Math.max(0, state.path.length - 1);
+  if (stepCount >= state.puzzle.maxSteps) {
+    return `Selected ${candidate.label}. Target not reached within ${state.puzzle.maxSteps} step${state.puzzle.maxSteps === 1 ? "" : "s"}.`;
+  }
+  return `Selected ${candidate.label}. Keep going toward ${state.puzzle.targetName}.`;
 }
 
 function formatReagentLabel(resolution) {
@@ -2042,5 +2161,7 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+populatePuzzleSelect();
+renderPuzzle();
 renderMolecule();
 renderPath();

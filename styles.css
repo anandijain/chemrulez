@@ -28,7 +28,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -148,7 +149,8 @@ h2 {
   margin-top: 12px;
 }
 
-input {
+input,
+select {
   background: white;
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -158,9 +160,65 @@ input {
   padding: 0 12px;
 }
 
-input:focus {
+input:focus,
+select:focus {
   border-color: var(--accent);
   outline: 3px solid rgb(19 122 99 / 14%);
+}
+
+.section-heading {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.status-inline {
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.status-inline.solved {
+  color: var(--accent-dark);
+}
+
+.puzzle-picker {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin-top: 12px;
+}
+
+.puzzle-details {
+  color: var(--muted);
+  padding-top: 12px;
+}
+
+.puzzle-target {
+  align-items: center;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 110px minmax(0, 1fr);
+}
+
+.puzzle-target img {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  max-width: 100%;
+  padding: 6px;
+}
+
+.puzzle-target p {
+  margin-top: 4px;
+}
+
+.allowed-reagents {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
 }
 
 .status {
@@ -376,7 +434,9 @@ input:focus {
 
 @media (max-width: 560px) {
   .topbar,
-  .input-row {
+  .input-row,
+  .puzzle-picker,
+  .puzzle-target {
     grid-template-columns: 1fr;
   }
 
