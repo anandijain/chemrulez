@@ -1,4 +1,4 @@
-# Chem Rules
+# chemrulez
 
 First iteration of an organic chemistry synthesis sandbox.
 
