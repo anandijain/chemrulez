@@ -41,7 +41,8 @@ function loadRules() {
 
   vm.createContext(context);
   vm.runInContext(
-    fs.readFileSync(path.join(__dirname, "../src/app.js"), "utf8"),
+    fs.readFileSync(path.join(__dirname, "../src/app.js"), "utf8")
+      .replace('import { synthesisPuzzles } from "./puzzles.js";', "const synthesisPuzzles = [];"),
     context,
     { filename: "src/app.js" },
   );

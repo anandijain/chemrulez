@@ -31,7 +31,22 @@
           <div id="puzzleDetails" class="puzzle-details"></div>
         </section>
 
-        <section class="panel import-panel" aria-labelledby="import-title">
+        <section class="panel reagent-panel" aria-labelledby="reagent-title">
+          <h2 id="reagent-title">Reagents</h2>
+          <form id="reactionForm" class="input-row">
+            <input
+              id="reagentInput"
+              name="reagent"
+              autocomplete="off"
+              placeholder="Enter reagents for the current molecule"
+              disabled
+            >
+            <button id="applyBtn" type="submit" disabled>Apply</button>
+          </form>
+          <div id="resolvedReagent" class="resolved"></div>
+        </section>
+
+        <section id="importPanel" class="panel import-panel" aria-labelledby="import-title">
           <h2 id="import-title">Molecule</h2>
           <form id="importForm" class="input-row">
             <input
@@ -50,21 +65,6 @@
             <h2>No molecule yet</h2>
             <p>Try importing <button class="link-button" data-example="1-butyne">1-butyne</button>.</p>
           </div>
-        </section>
-
-        <section class="panel reagent-panel" aria-labelledby="reagent-title">
-          <h2 id="reagent-title">Reagents</h2>
-          <form id="reactionForm" class="input-row">
-            <input
-              id="reagentInput"
-              name="reagent"
-              autocomplete="off"
-              placeholder="1 eq NaNH2, sodium amide, sodamide..."
-              disabled
-            >
-            <button id="applyBtn" type="submit" disabled>Apply</button>
-          </form>
-          <div id="resolvedReagent" class="resolved"></div>
         </section>
 
         <section id="results" class="results" aria-live="polite"></section>

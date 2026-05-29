@@ -142,6 +142,10 @@ h2 {
   padding: 16px;
 }
 
+.is-hidden {
+  display: none;
+}
+
 .input-row {
   display: grid;
   gap: 10px;
@@ -219,6 +223,16 @@ select:focus {
   flex-wrap: wrap;
   gap: 6px;
   margin-top: 8px;
+}
+
+.puzzle-hints {
+  margin-top: 8px;
+}
+
+.puzzle-hints summary {
+  color: var(--accent-dark);
+  cursor: pointer;
+  font-weight: 700;
 }
 
 .status {

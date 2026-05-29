@@ -26,20 +26,6 @@ const context = {
   fetch: async () => {
     throw new Error("Network access is not used in rule tests");
   },
-  synthesisPuzzles: [
-    {
-      id: "test-propene-to-epoxide",
-      title: "Propene to propylene oxide",
-      tier: "Core alkenes",
-      source: "test",
-      startName: "Propene",
-      startSmiles: "CC=C",
-      targetName: "Propylene oxide",
-      targetSmiles: "CC1CO1",
-      maxSteps: 1,
-      allowedReagents: ["mCPBA"],
-    },
-  ],
   document: {
     querySelector() {
       return makeElement();
@@ -53,6 +39,12 @@ const context = {
 };
 
 vm.createContext(context);
+vm.runInContext(
+  fs.readFileSync(path.join(__dirname, "../src/puzzles.js"), "utf8")
+    .replace("export const synthesisPuzzles =", "var synthesisPuzzles ="),
+  context,
+  { filename: "src/puzzles.js" },
+);
 vm.runInContext(
   fs.readFileSync(path.join(__dirname, "../src/app.js"), "utf8")
     .replace('import { synthesisPuzzles } from "./puzzles.js";', ""),
@@ -276,12 +268,26 @@ const tests = [
   {
     name: "puzzle target matching uses graph structure keys",
     run() {
-      const target = context.moleculeFromPuzzleRole(context.synthesisPuzzles[0], "target");
+      const target = context.moleculeFromPuzzleRole(
+        context.synthesisPuzzles.find((puzzle) => puzzle.id === "propene-to-propylene-oxide"),
+        "target",
+      );
       const product = context.withChemMetadata({
         displayName: "candidate",
         canonicalSmiles: "CC1CO1",
       });
       assert.equal(context.structuresMatch(product, target), true);
+    },
+  },
+  {
+    name: "longer puzzle targets match current route products",
+    run() {
+      const puzzles = Object.fromEntries(context.synthesisPuzzles.map((puzzle) => [puzzle.id, puzzle]));
+      assert.equal(puzzles["butyne-to-hexane"].targetSmiles, "CCCCCC");
+      assert.equal(puzzles["butyne-to-trans-3-hexene"].targetSmiles, "CC/C=C/CC");
+      assert.equal(puzzles["butyne-to-cis-3-hexene"].targetSmiles, "CC/C=C\\CC");
+      assert.equal(puzzles["acetylene-to-2-butanone"].targetSmiles, "CCC(=O)C");
+      assert.equal(puzzles["propene-to-bromohydrin"].targetSmiles, "CC(Br)CO");
     },
   },
   {

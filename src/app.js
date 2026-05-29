@@ -177,6 +177,7 @@ const localMolecules = [
 
 const els = {
   importForm: document.querySelector("#importForm"),
+  importPanel: document.querySelector("#importPanel"),
   moleculeInput: document.querySelector("#moleculeInput"),
   importStatus: document.querySelector("#importStatus"),
   puzzleSelect: document.querySelector("#puzzleSelect"),
@@ -645,6 +646,8 @@ function populatePuzzleSelect() {
 }
 
 function renderPuzzle() {
+  els.importPanel.classList.toggle("is-hidden", Boolean(state.puzzle));
+
   if (!state.puzzle) {
     els.puzzleStatus.textContent = "Free play";
     els.puzzleStatus.className = "status-inline";
@@ -661,11 +664,14 @@ function renderPuzzle() {
       <img src="${target.imageUrl}" alt="Target structure for ${escapeHtml(target.displayName)}">
       <div>
         <strong>${escapeHtml(state.puzzle.startName)} -> ${escapeHtml(state.puzzle.targetName)}</strong>
-        <p><code>${escapeHtml(target.canonicalSmiles)}</code></p>
         <p>${escapeHtml(state.puzzle.tier)} · ${escapeHtml(state.puzzle.source)}</p>
-        <div class="allowed-reagents">
-          ${state.puzzle.allowedReagents.map((reagent) => `<span class="pill">${escapeHtml(reagent)}</span>`).join("")}
-        </div>
+        <details class="puzzle-hints">
+          <summary>Hints</summary>
+          <p>Target key: <code>${escapeHtml(target.canonicalSmiles)}</code></p>
+          <div class="allowed-reagents">
+            ${state.puzzle.allowedReagents.map((reagent) => `<span class="pill">${escapeHtml(reagent)}</span>`).join("")}
+          </div>
+        </details>
       </div>
     </div>
   `;
