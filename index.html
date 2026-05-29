@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Chem Rules</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <main class="app">
+      <section class="workspace">
+        <header class="topbar">
+          <div>
+            <h1>Chem Rules</h1>
+            <p>Import a molecule, enter reagents, and pick the product path you want to continue.</p>
+          </div>
+          <button id="resetBtn" class="ghost">Reset</button>
+        </header>
+
+        <section class="panel import-panel" aria-labelledby="import-title">
+          <h2 id="import-title">Molecule</h2>
+          <form id="importForm" class="input-row">
+            <input
+              id="moleculeInput"
+              name="molecule"
+              autocomplete="off"
+              placeholder="1-butyne, CCC#C, PubChem CID, or PubChem URL"
+            >
+            <button type="submit">Import</button>
+          </form>
+          <p id="importStatus" class="status"></p>
+        </section>
+
+        <section id="activeMolecule" class="molecule-view empty">
+          <div class="empty-state">
+            <h2>No molecule yet</h2>
+            <p>Try importing <button class="link-button" data-example="1-butyne">1-butyne</button>.</p>
+          </div>
+        </section>
+
+        <section class="panel reagent-panel" aria-labelledby="reagent-title">
+          <h2 id="reagent-title">Reagents</h2>
+          <form id="reactionForm" class="input-row">
+            <input
+              id="reagentInput"
+              name="reagent"
+              autocomplete="off"
+              placeholder="1 eq NaNH2, sodium amide, sodamide..."
+              disabled
+            >
+            <button id="applyBtn" type="submit" disabled>Apply</button>
+          </form>
+          <div id="resolvedReagent" class="resolved"></div>
+        </section>
+
+        <section id="results" class="results" aria-live="polite"></section>
+      </section>
+
+      <aside class="history">
+        <h2>Path</h2>
+        <ol id="pathList"></ol>
+      </aside>
+    </main>
+
+    <script src="./src/app.js" type="module"></script>
+  </body>
+</html>
