@@ -177,11 +177,11 @@ h2 {
   order: 2;
 }
 
-.molecule-view {
+.results {
   order: 3;
 }
 
-.results {
+.molecule-view {
   order: 4;
 }
 
@@ -211,18 +211,18 @@ h2 {
 }
 
 .puzzle-mode .molecule-view {
-  order: 3;
+  order: 4;
 }
 
 .has-active-molecule.free-mode .reagent-panel {
   order: 1;
 }
 
-.has-active-molecule.free-mode .molecule-view {
+.has-active-molecule.free-mode .results {
   order: 2;
 }
 
-.has-active-molecule.free-mode .results {
+.has-active-molecule.free-mode .molecule-view {
   order: 3;
 }
 
