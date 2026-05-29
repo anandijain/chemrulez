@@ -131,6 +131,32 @@ const tests = [
     },
   },
   {
+    name: "graph alkyl halide classifier accepts bromoethane-shaped PubChem SMILES",
+    run() {
+      const classified = context.classifyAlkylHalide(
+        {
+          displayName: "Bromoethane",
+          canonicalSmiles: "C(C)Br",
+        },
+        "bromoethane",
+      );
+      assert.equal(classified.kind, "primary alkyl halide");
+      assert.equal(classified.alkylSmiles, "CC");
+      assert.equal(classified.leavingGroup, "BR");
+    },
+  },
+  {
+    name: "structural reagent parsing accepts PubChem CIDs and URLs",
+    run() {
+      const cid = context.parseMoleculeInput("7846");
+      assert.equal(cid.type, "cid");
+      assert.equal(cid.value, "7846");
+      const url = context.parseMoleculeInput("https://pubchem.ncbi.nlm.nih.gov/compound/7846");
+      assert.equal(url.type, "cid");
+      assert.equal(url.value, "7846");
+    },
+  },
+  {
     name: "Lindlar reduction stops alkyne at alkene",
     run() {
       const [candidate] = productsFor("CC#CC", Lindlar);

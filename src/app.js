@@ -852,9 +852,12 @@ async function resolveStructuralReagent(input) {
 }
 
 async function fetchMoleculeLenient(input) {
-  const attempts = looksLikeSmiles(input)
-    ? [{ type: "smiles", value: input }, { type: "name", value: input }]
-    : [{ type: "name", value: input }, { type: "smiles", value: input }];
+  const parsed = parseMoleculeInput(input);
+  const attempts = parsed.type === "cid"
+    ? [parsed]
+    : (parsed.type === "smiles"
+      ? [parsed, { type: "name", value: input }]
+      : [parsed, { type: "smiles", value: input }]);
 
   let lastError;
   for (const request of attempts) {
@@ -1349,6 +1352,9 @@ function carbocationAdditionCandidates(molecule, group, reactionName) {
 }
 
 function classifyAlkylHalide(molecule, input) {
+  const graphClassification = classifyAlkylHalideFromGraph(molecule, input);
+  if (graphClassification) return graphClassification;
+
   const smiles = molecule.canonicalSmiles;
   const match = smiles.match(/(Cl|Br|I)$/);
   if (!match) return null;
@@ -1374,6 +1380,66 @@ function classifyAlkylHalide(molecule, input) {
     molecule,
     sn2Quality: quality,
   };
+}
+
+function classifyAlkylHalideFromGraph(molecule, input) {
+  let parsed;
+  try {
+    parsed = chem.fromSmiles(molecule.canonicalSmiles);
+  } catch (error) {
+    return null;
+  }
+
+  const halide = findAlkylHalideBond(parsed.graph);
+  if (!halide) return null;
+
+  const productGraph = cloneGraph(parsed.graph);
+  removeGraphBond(productGraph, halide.carbon, halide.halogen);
+  productGraph.atoms[halide.halogen].token = "*";
+  productGraph.root = halide.carbon;
+  const alkylSmiles = smilesFromConnectedComponent(productGraph, halide.carbon, new Set([halide.halogen]));
+  const title = molecule.displayName || input;
+  const quality = classifySn2QualityFromGraph(parsed.graph, halide.carbon, title, alkylSmiles);
+  const kind = {
+    excellent: "methyl/activated alkyl halide",
+    high: "primary alkyl halide",
+    poor: "secondary alkyl halide",
+    blocked: "tertiary alkyl halide",
+  }[quality];
+
+  return {
+    id: `alkyl_halide_${molecule.cid || normalizeText(input)}`,
+    canonical: title,
+    kind,
+    alkylSmiles: quality === "poor" || quality === "blocked" ? null : alkylSmiles,
+    leavingGroup: atomElement(parsed.graph.atoms[halide.halogen]),
+    molecule,
+    sn2Quality: quality,
+  };
+}
+
+function findAlkylHalideBond(graph) {
+  for (const atom of graph.atoms) {
+    if (!["CL", "BR", "I"].includes(atomElement(atom))) continue;
+    const carbonNeighbor = graphNeighbors(graph, atom.id)
+      .find((neighbor) => atomElement(graph.atoms[neighbor.atomIndex]) === "C");
+    if (carbonNeighbor) return { halogen: atom.id, carbon: carbonNeighbor.atomIndex };
+  }
+  return null;
+}
+
+function classifySn2QualityFromGraph(graph, carbonIndex, title, alkylSmiles) {
+  const normalizedTitle = normalizeText(title);
+  if (normalizedTitle.includes("tert") || normalizedTitle.includes("tertiary")) return "blocked";
+  if (normalizedTitle.includes("sec") || normalizedTitle.includes("secondary")) return "poor";
+  if (alkylSmiles === "C" || isBenzylicFragment(alkylSmiles) || isAllylicFragment(alkylSmiles)) return "excellent";
+
+  const carbonNeighbors = graphNeighbors(graph, carbonIndex)
+    .filter((neighbor) => atomElement(graph.atoms[neighbor.atomIndex]) === "C")
+    .length;
+  if (carbonNeighbors >= 3) return "blocked";
+  if (carbonNeighbors === 2) return "poor";
+  return "high";
 }
 
 function classifyGrignard(molecule, input) {
@@ -1607,6 +1673,41 @@ function smilesFromGraph(graph) {
   const tree = spanningTreeForGraph(graph);
   const ringLabels = ringLabelsForGraph(graph, tree.treeBondIndexes);
   return smilesFromAtom(graph, graph.root, null, tree.children, ringLabels);
+}
+
+function smilesFromConnectedComponent(graph, root, excludedAtoms = new Set()) {
+  const component = connectedComponentGraph(graph, root, excludedAtoms);
+  return smilesFromGraph(component);
+}
+
+function connectedComponentGraph(graph, root, excludedAtoms) {
+  const included = new Set();
+  const stack = [root];
+
+  while (stack.length) {
+    const atomIndex = stack.pop();
+    if (included.has(atomIndex) || excludedAtoms.has(atomIndex)) continue;
+    included.add(atomIndex);
+    for (const neighbor of graphNeighbors(graph, atomIndex)) stack.push(neighbor.atomIndex);
+  }
+
+  const oldToNew = new Map([...included].map((atomIndex, index) => [atomIndex, index]));
+  return {
+    atoms: [...included].map((atomIndex, index) => ({
+      ...graph.atoms[atomIndex],
+      id: index,
+    })),
+    bonds: graph.bonds
+      .filter((bond) => included.has(bond.from) && included.has(bond.to))
+      .map((bond) => ({
+        from: oldToNew.get(bond.from),
+        to: oldToNew.get(bond.to),
+        order: bond.order,
+      })),
+    root: oldToNew.get(root),
+    hasRings: graph.hasRings,
+    hasDisconnectedComponents: false,
+  };
 }
 
 function spanningTreeForGraph(graph) {
