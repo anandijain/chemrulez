@@ -48,6 +48,11 @@ button:hover {
   background: var(--accent-dark);
 }
 
+button:focus-visible {
+  outline: 3px solid rgb(19 122 99 / 24%);
+  outline-offset: 2px;
+}
+
 button:disabled,
 input:disabled {
   cursor: not-allowed;
@@ -416,9 +421,9 @@ select:focus {
 .resolved {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  min-height: 30px;
-  padding-top: 10px;
+  gap: 6px;
+  min-height: 26px;
+  padding-top: 8px;
 }
 
 .pill {
@@ -428,33 +433,50 @@ select:focus {
   border-radius: 999px;
   color: var(--ink);
   display: inline-flex;
-  font-size: 0.9rem;
-  min-height: 30px;
-  padding: 0 10px;
+  font-size: 0.84rem;
+  min-height: 26px;
+  padding: 0 9px;
 }
 
 .results {
   display: grid;
-  gap: 12px;
+  gap: 8px;
+}
+
+.has-result-preview .reagent-panel {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.has-result-preview .results {
+  margin-top: -16px;
 }
 
 .candidate {
   display: grid;
-  gap: 14px;
-  grid-template-columns: 220px minmax(0, 1fr) auto;
-  padding: 14px;
+  align-items: center;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  box-shadow: 0 10px 22px rgb(23 32 29 / 7%);
+  gap: 12px;
+  grid-template-columns: 96px minmax(0, 1fr) auto;
+  padding: 10px;
 }
 
 .candidate img {
   background: var(--surface-2);
   border: 1px solid var(--line);
   border-radius: 6px;
-  max-width: 100%;
+  height: 88px;
+  max-width: 88px;
+  object-fit: contain;
   padding: 8px;
+  width: 88px;
 }
 
 .candidate h3 {
-  margin: 0 0 8px;
+  font-size: 1.05rem;
+  margin: 2px 0 4px;
 }
 
 .candidate a,
@@ -465,12 +487,14 @@ select:focus {
 }
 
 .candidate ul {
-  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin: 6px 0 0;
   padding-left: 18px;
 }
 
 .candidate li {
-  margin: 5px 0;
+  margin: 3px 0;
 }
 
 .tag {
@@ -547,13 +571,8 @@ select:focus {
     position: static;
   }
 
-  .molecule-card,
-  .candidate {
+  .molecule-card {
     grid-template-columns: 1fr;
-  }
-
-  .candidate button {
-    width: 100%;
   }
 }
 
@@ -577,5 +596,20 @@ select:focus {
   .mode-nav button {
     flex: 1;
     text-align: center;
+  }
+
+  .candidate {
+    grid-template-columns: 76px minmax(0, 1fr);
+  }
+
+  .candidate img {
+    height: 72px;
+    max-width: 72px;
+    width: 72px;
+  }
+
+  .candidate button {
+    grid-column: 1 / -1;
+    width: 100%;
   }
 }

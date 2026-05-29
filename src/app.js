@@ -168,6 +168,13 @@ const localMolecules = [
     molecularWeight: "44.05",
   },
   {
+    keys: ["bromoethane", "ethylbromide", "ethyl bromide"],
+    displayName: "Bromoethane",
+    canonicalSmiles: "CCBr",
+    formula: "C2H5Br",
+    molecularWeight: "108.97",
+  },
+  {
     keys: ["co2", "carbondioxide"],
     displayName: "Carbon dioxide",
     canonicalSmiles: "O=C=O",
@@ -378,6 +385,26 @@ els.reagentForm.addEventListener("submit", async (event) => {
   await applyReagents(els.reagentInput.value);
 });
 
+els.reagentInput.addEventListener("keydown", (event) => {
+  if (event.key !== "ArrowDown") return;
+  const firstAction = firstEnabledCandidateButton();
+  if (!firstAction) return;
+  event.preventDefault();
+  firstAction.focus();
+});
+
+els.results.addEventListener("keydown", (event) => {
+  if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+  const buttons = enabledCandidateButtons();
+  const currentIndex = buttons.indexOf(document.activeElement);
+  if (currentIndex === -1) return;
+
+  event.preventDefault();
+  const direction = event.key === "ArrowDown" ? 1 : -1;
+  const nextIndex = (currentIndex + direction + buttons.length) % buttons.length;
+  buttons[nextIndex].focus();
+});
+
 let reagentPreviewRequest = 0;
 els.reagentInput.addEventListener("input", () => {
   const requestId = ++reagentPreviewRequest;
@@ -397,7 +424,7 @@ els.resetBtn.addEventListener("click", () => {
   els.reagentInput.value = "";
   els.reagentInput.disabled = true;
   els.applyBtn.disabled = true;
-  els.results.innerHTML = "";
+  clearResults();
   els.resolvedReagent.innerHTML = "";
   renderMode();
   renderPuzzle();
@@ -420,7 +447,7 @@ document.querySelectorAll("[data-example]").forEach((button) => {
 
 async function importMolecule(rawInput) {
   setImportStatus("Importing...");
-  els.results.innerHTML = "";
+  clearResults();
 
   try {
     const request = parseMoleculeInput(rawInput);
@@ -557,7 +584,7 @@ function startPuzzle(puzzle) {
   state.solved = false;
   state.active = null;
   state.path = [];
-  els.results.innerHTML = "";
+  clearResults();
   els.resolvedReagent.innerHTML = "";
   els.reagentInput.value = "";
   selectMolecule(moleculeFromPuzzleRole(puzzle, "start"), `Started puzzle: ${puzzle.title}`);
@@ -588,6 +615,7 @@ function selectMolecule(molecule, pathLabel) {
   renderMolecule();
   renderPath();
   renderPuzzle();
+  focusReagentInput();
 }
 
 function renderMolecule() {
@@ -905,7 +933,7 @@ async function applyReagents(input) {
   renderResolvedReagent(resolution);
 
   if (!resolution?.reagent) {
-    els.results.innerHTML = emptyResult("No rule matched", "I could not resolve that reagent set yet.");
+    setResultsHtml(emptyResult("No rule matched", "I could not resolve that reagent set yet."));
     return;
   }
 
@@ -2165,7 +2193,7 @@ function alkylateAcetylide(acetylideSmiles, alkylSmiles) {
 }
 
 function renderCandidates(candidates, resolution) {
-  els.results.innerHTML = candidates
+  setResultsHtml(candidates
     .map((candidate, index) => {
       const imageUrl = imageUrlForSmiles(candidate.productSmiles);
       const disabled = candidate.bucket === "none" ? "disabled" : "";
@@ -2181,11 +2209,11 @@ function renderCandidates(candidates, resolution) {
               ${candidate.explanation.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
             </ul>
           </div>
-          <button data-candidate="${index}" ${disabled}>Use Product</button>
+          <button data-candidate="${index}" ${disabled} aria-label="Use ${escapeHtml(candidate.label)}">Use</button>
         </article>
       `;
     })
-    .join("");
+    .join(""));
 
   els.results.querySelectorAll("[data-candidate]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -2203,7 +2231,7 @@ function renderCandidates(candidates, resolution) {
         imageUrl: imageUrlForSmiles(candidate.productSmiles),
       };
       selectMolecule(product, `${formatReagentLabel(resolution)} -> ${candidate.label}`);
-      els.results.innerHTML = "";
+      clearResults();
       els.reagentInput.value = "";
       els.resolvedReagent.innerHTML = "";
       setImportStatus(
@@ -2212,6 +2240,34 @@ function renderCandidates(candidates, resolution) {
           : puzzleProgressMessage(candidate),
       );
     });
+  });
+
+  queueMicrotask(() => firstEnabledCandidateButton()?.focus({ preventScroll: true }));
+}
+
+function setResultsHtml(html) {
+  els.results.innerHTML = html;
+  document.body.classList.toggle("has-result-preview", Boolean(html.trim()));
+}
+
+function clearResults() {
+  setResultsHtml("");
+}
+
+function enabledCandidateButtons() {
+  return [...els.results.querySelectorAll("[data-candidate]:not(:disabled)")];
+}
+
+function firstEnabledCandidateButton() {
+  return enabledCandidateButtons()[0] || null;
+}
+
+function focusReagentInput() {
+  const focusLater = typeof requestAnimationFrame === "function" ? requestAnimationFrame : setTimeout;
+  focusLater(() => {
+    if (!els.reagentInput.disabled && typeof els.reagentInput.focus === "function") {
+      els.reagentInput.focus({ preventScroll: true });
+    }
   });
 }
 

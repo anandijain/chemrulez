@@ -408,6 +408,8 @@ const tests = [
       assert.equal(context.localMoleculeFromInput("cis-2-butene").canonicalSmiles, "C/C=C\\C");
       assert.equal(context.localMoleculeFromInput("propene").canonicalSmiles, "CC=C");
       assert.equal(context.localMoleculeFromInput("acetylene").canonicalSmiles, "C#C");
+      assert.equal(context.localMoleculeFromInput("bromoethane").canonicalSmiles, "CCBr");
+      assert.equal(context.localMoleculeFromInput("ethyl bromide").canonicalSmiles, "CCBr");
       assert.equal(context.localMoleculeFromInput("CO2").canonicalSmiles, "O=C=O");
     },
   },
