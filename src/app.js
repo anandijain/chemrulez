@@ -2664,6 +2664,11 @@ function acetylideAlkylationCandidates(molecule, reagent) {
 }
 
 function isLikelyTerminalAlkyne(smiles) {
+  try {
+    return Boolean(findTerminalAlkyne(chem.fromSmiles(smiles).graph));
+  } catch (error) {
+    // Fall back for SMILES outside the current graph parser subset.
+  }
   return smiles.startsWith("C#C") || smiles.endsWith("C#C") || smiles.endsWith("#C");
 }
 
@@ -2675,7 +2680,33 @@ function deprotonateTerminalAlkyne(smiles) {
   if (smiles.startsWith("C#C")) return `[C-]#${smiles.slice(2)}`;
   if (smiles.endsWith("C#C")) return `${smiles.slice(0, -1)}[C-]`;
   if (smiles.endsWith("#C")) return `${smiles.slice(0, -1)}[C-]`;
+  try {
+    const parsed = chem.fromSmiles(smiles);
+    const alkyne = findTerminalAlkyne(parsed.graph);
+    if (alkyne) {
+      const product = cloneGraph(parsed.graph);
+      product.atoms[alkyne.terminalCarbon].token = "[C-]";
+      product.root = alkyne.terminalCarbon;
+      return smilesFromGraph(product);
+    }
+  } catch (error) {
+    // Fall back to the old placeholder behavior below.
+  }
   return `${smiles}.[Na+]`;
+}
+
+function findTerminalAlkyne(graph) {
+  for (const bond of graph.bonds) {
+    if (bond.order !== 3) continue;
+    if (atomElement(graph.atoms[bond.from]) !== "C" || atomElement(graph.atoms[bond.to]) !== "C") continue;
+    if (implicitHydrogenCount(graph, bond.from) > 0) {
+      return { terminalCarbon: bond.from, internalCarbon: bond.to };
+    }
+    if (implicitHydrogenCount(graph, bond.to) > 0) {
+      return { terminalCarbon: bond.to, internalCarbon: bond.from };
+    }
+  }
+  return null;
 }
 
 function alkylateAcetylide(acetylideSmiles, alkylSmiles) {

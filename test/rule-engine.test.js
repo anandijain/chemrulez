@@ -227,6 +227,27 @@ const tests = [
     },
   },
   {
+    name: "generated terminal alkyne spellings deprotonate with sodium amide",
+    run() {
+      assert.equal(context.isLikelyTerminalAlkyne("C(#C)C"), true);
+      const [candidate] = productsFor("C(#C)C", NaNH2);
+      assert.equal(candidate.label, "Acetylide anion");
+      assert.equal(candidate.productSmiles, "[C-]#CC");
+    },
+  },
+  {
+    name: "propene dibromination then sodium amide can continue to acetylide",
+    run() {
+      const [dibromide] = productsFor("CC=C", Br2);
+      assert.equal(dibromide.productSmiles, "CC(Br)CBr");
+      const [alkyne] = productsFor(dibromide.productSmiles, NaNH2);
+      assert.equal(alkyne.label, "Double dehydrohalogenation to alkyne");
+      const [acetylide] = productsFor(alkyne.productSmiles, NaNH2);
+      assert.equal(acetylide.label, "Acetylide anion");
+      assert.equal(acetylide.productSmiles, "[C-]#CC");
+    },
+  },
+  {
     name: "Lindlar reduction stops alkyne at alkene",
     run() {
       const [candidate] = productsFor("CC#CC", Lindlar);
