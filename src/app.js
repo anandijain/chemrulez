@@ -304,6 +304,54 @@ const reagentAliases = [
     aliases: ["naoh", "oh-", "hydroxide", "aqueous hydroxide", "naoh h2o", "koh", "koh h2o"],
   },
   {
+    id: "e2_base",
+    canonical: "NaOEt, heat",
+    kind: "strong base E2 conditions",
+    aliases: [
+      "naoet",
+      "naoet heat",
+      "sodium ethoxide",
+      "sodium ethoxide heat",
+      "koh etoh",
+      "koh ethanol",
+      "koh heat",
+      "naoh heat",
+      "alcoholic koh",
+      "strong base heat",
+      "e2",
+    ],
+  },
+  {
+    id: "bulky_e2_base",
+    canonical: "t-BuOK, heat",
+    kind: "bulky base E2 conditions",
+    aliases: [
+      "tbuok",
+      "t-buok",
+      "tert butoxide",
+      "tert-butoxide",
+      "potassium tert-butoxide",
+      "kotbu",
+      "ko tbu",
+      "bulky base",
+      "hoffman",
+      "hofmann",
+    ],
+  },
+  {
+    id: "e1_heat",
+    canonical: "EtOH, heat",
+    kind: "weak nucleophile E1 conditions",
+    aliases: [
+      "etoh heat",
+      "ethanol heat",
+      "h2o heat",
+      "water heat",
+      "solvolysis heat",
+      "e1",
+    ],
+  },
+  {
     id: "alkene_oxymercuration",
     canonical: "1. Hg(OAc)2, H2O  2. NaBH4",
     kind: "alkene oxymercuration-demercuration",
@@ -947,9 +995,14 @@ function findReactionCandidates(molecule, resolution) {
   const alkylHalide = reagents.find((reagent) => reagent.kind.includes("alkyl halide"));
   const grignard = reagents.find((reagent) => reagent.kind.includes("Grignard"));
   const reagentIds = new Set(reagents.map((reagent) => reagent.id));
+  const substrateAlkylHalide = classifyAlkylHalide(molecule, molecule.displayName || molecule.canonicalSmiles);
 
   if (grignard && (hasCarbonyl(molecule.canonicalSmiles) || isCarbonDioxide(molecule.canonicalSmiles))) {
     return grignardReactionCandidates(molecule, grignard);
+  }
+
+  if (substrateAlkylHalide && isEliminationCondition(reagentIds)) {
+    return eliminationCandidates(molecule, substrateAlkylHalide, reagentIds);
   }
 
   if (hasEpoxide(molecule.canonicalSmiles)) {
@@ -1696,6 +1749,19 @@ function atomElement(atom) {
   return match[0].toUpperCase();
 }
 
+function atomValence(graph, atomIndex) {
+  return graphNeighbors(graph, atomIndex)
+    .reduce((total, neighbor) => total + neighbor.bond.order, 0);
+}
+
+function implicitHydrogenCount(graph, atomIndex) {
+  const element = atomElement(graph.atoms[atomIndex]);
+  const valenceTargets = { C: 4, N: 3, O: 2 };
+  const target = valenceTargets[element];
+  if (!target) return 0;
+  return Math.max(0, target - atomValence(graph, atomIndex));
+}
+
 function smilesFromGraph(graph) {
   if (graph.root === null) return "";
   const tree = spanningTreeForGraph(graph);
@@ -2108,6 +2174,145 @@ function isBenzylicFragment(smiles) {
 
 function isAllylicFragment(smiles) {
   return /C=CC$/.test(smiles);
+}
+
+function isEliminationCondition(reagentIds) {
+  return reagentIds.has("e2_base") || reagentIds.has("bulky_e2_base") || reagentIds.has("e1_heat");
+}
+
+function eliminationCandidates(molecule, alkylHalide, reagentIds) {
+  let parsed;
+  try {
+    parsed = chem.fromSmiles(molecule.canonicalSmiles);
+  } catch (error) {
+    return [];
+  }
+
+  const halide = findAlkylHalideBond(parsed.graph);
+  if (!halide) return [];
+
+  const mode = reagentIds.has("e1_heat")
+    ? "e1"
+    : (reagentIds.has("bulky_e2_base") ? "hofmann" : "zaitsev");
+  if (mode === "e1" && !["poor", "blocked"].includes(alkylHalide.sn2Quality)) {
+    return [
+      {
+        id: "primary_halide_no_e1",
+        label: "No useful E1 elimination",
+        productName: molecule.displayName,
+        productSmiles: molecule.canonicalSmiles,
+        bucket: "none",
+        confidence: 0.78,
+        explanation: [
+          `${alkylHalide.canonical} is treated as a ${alkylHalide.kind}.`,
+          "Simple E1 conditions require a reasonably stable carbocation, so methyl and ordinary primary alkyl halides are not useful E1 substrates.",
+          "Use strong base conditions for E2 or a more substituted/benzylic/allylic substrate for E1.",
+        ],
+      },
+    ];
+  }
+
+  const candidates = alkylHalideEliminationProducts(parsed.graph, halide, mode);
+  if (!candidates.length) {
+    return [
+      {
+        id: "no_beta_hydrogen",
+        label: "No beta-hydrogen elimination",
+        productName: molecule.displayName,
+        productSmiles: molecule.canonicalSmiles,
+        bucket: "none",
+        confidence: 0.82,
+        explanation: [
+          "The alkyl halide was found, but no adjacent beta carbon has an implicit hydrogen in the current graph.",
+          "E1 and E2 eliminations need a beta hydrogen next to the leaving group carbon.",
+        ],
+      },
+    ];
+  }
+
+  return candidates.map((item, index) => {
+    const favored = index === 0;
+    const e1 = mode === "e1";
+    const hofmann = mode === "hofmann";
+    return {
+      id: `${mode}_elimination_${index}_${item.productSmiles}`,
+      label: `${favored ? "Major " : "Minor "}${e1 ? "E1" : "E2"} alkene${hofmann && favored ? " (Hofmann)" : ""}`,
+      productName: `${molecule.displayName} elimination product`,
+      productSmiles: item.productSmiles,
+      bucket: favored ? "high" : "mixture",
+      confidence: favored ? (hofmann ? 0.76 : 0.8) : 0.45,
+      explanation: eliminationExplanation(mode, alkylHalide, item, favored),
+    };
+  });
+}
+
+function alkylHalideEliminationProducts(graph, halide, mode) {
+  const betaCarbons = graphNeighbors(graph, halide.carbon)
+    .filter((neighbor) => neighbor.atomIndex !== halide.halogen)
+    .filter((neighbor) => atomElement(graph.atoms[neighbor.atomIndex]) === "C")
+    .filter((neighbor) => implicitHydrogenCount(graph, neighbor.atomIndex) > 0);
+
+  const byProduct = new Map();
+  for (const beta of betaCarbons) {
+    const product = cloneGraph(graph);
+    removeGraphBond(product, halide.carbon, halide.halogen);
+    const alphaBetaBond = graphBondBetween(product, halide.carbon, beta.atomIndex);
+    if (!alphaBetaBond) continue;
+    alphaBetaBond.order = 2;
+    product.root = bestRootForProduct(product, halide.carbon);
+    const productSmiles = smilesFromConnectedComponent(product, product.root, new Set([halide.halogen]));
+    const alkeneScore = alkeneSubstitutionScore(product, halide.carbon, {
+      from: halide.carbon,
+      to: beta.atomIndex,
+    }) + alkeneSubstitutionScore(product, beta.atomIndex, {
+      from: halide.carbon,
+      to: beta.atomIndex,
+    });
+
+    const existing = byProduct.get(productSmiles);
+    if (!existing || alkeneScore > existing.alkeneScore) {
+      byProduct.set(productSmiles, {
+        productSmiles,
+        betaCarbon: beta.atomIndex,
+        alkeneScore,
+      });
+    }
+  }
+
+  return [...byProduct.values()].sort((left, right) => {
+    if (mode === "hofmann") return left.alkeneScore - right.alkeneScore;
+    return right.alkeneScore - left.alkeneScore;
+  });
+}
+
+function eliminationExplanation(mode, alkylHalide, product, favored) {
+  if (mode === "e1") {
+    return [
+      `${alkylHalide.canonical} is treated as a ${alkylHalide.kind}.`,
+      "Weak nucleophile/solvolysis conditions with heat favor ionization followed by beta deprotonation for E1-prone substrates.",
+      favored
+        ? "The more substituted alkene is ranked major by the Zaitsev rule."
+        : "This less substituted alkene can form, but it is ranked minor under simple E1 conditions.",
+    ];
+  }
+
+  if (mode === "hofmann") {
+    return [
+      `${alkylHalide.canonical} is treated as a ${alkylHalide.kind}.`,
+      "Bulky strong base conditions favor E2, but steric crowding makes the less substituted beta hydrogen easier to remove.",
+      favored
+        ? "The less substituted alkene is ranked major as the Hofmann product."
+        : "This more substituted alkene is possible, but it is disfavored with the bulky-base rule.",
+    ];
+  }
+
+  return [
+    `${alkylHalide.canonical} is treated as a ${alkylHalide.kind}.`,
+    "Strong base and heat favor concerted E2 elimination from an alkyl halide.",
+    favored
+      ? "The more substituted alkene is ranked major by the Zaitsev rule."
+      : "This less substituted alkene is included as a minor elimination product.",
+  ];
 }
 
 function acetylideAlkylationCandidates(molecule, reagent) {

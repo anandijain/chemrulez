@@ -102,6 +102,9 @@ const HBr = reagent("hbr", "HBr", "hydrohalogenation");
 const HBrPeroxides = reagent("hbr_peroxides", "HBr, ROOR", "radical anti-Markovnikov hydrohalogenation");
 const acidHydration = reagent("acid_hydration", "H3O+", "acid-catalyzed alkene hydration");
 const hydroxide = reagent("hydroxide", "NaOH, H2O", "hydroxide nucleophile");
+const ethoxideHeat = reagent("e2_base", "NaOEt, heat", "strong base E2 conditions");
+const tertButoxide = reagent("bulky_e2_base", "t-BuOK, heat", "bulky base E2 conditions");
+const solvolysisHeat = reagent("e1_heat", "EtOH, heat", "weak nucleophile E1 conditions");
 const oxymercuration = reagent("alkene_oxymercuration", "1. Hg(OAc)2, H2O  2. NaBH4", "alkene oxymercuration-demercuration");
 const hydroboration = reagent("alkene_hydroboration", "1. BH3  2. H2O2, NaOH", "alkene hydroboration-oxidation");
 const Br2 = reagent("br2", "Br2", "halogenation");
@@ -154,6 +157,40 @@ const tests = [
       const url = context.parseMoleculeInput("https://pubchem.ncbi.nlm.nih.gov/compound/7846");
       assert.equal(url.type, "cid");
       assert.equal(url.value, "7846");
+    },
+  },
+  {
+    name: "E2 with a normal strong base ranks the Zaitsev alkene major",
+    run() {
+      const candidates = productsFor("CC(Br)CC", ethoxideHeat);
+      assert.equal(candidates[0].label, "Major E2 alkene");
+      assert.equal(candidates[0].productSmiles, "CC=CC");
+      assert.equal(candidates[1].productSmiles, "C=CCC");
+    },
+  },
+  {
+    name: "E2 with a bulky base ranks the Hofmann alkene major",
+    run() {
+      const candidates = productsFor("CC(Br)CC", tertButoxide);
+      assert.equal(candidates[0].label, "Major E2 alkene (Hofmann)");
+      assert.equal(candidates[0].productSmiles, "C=CCC");
+      assert.equal(candidates[1].productSmiles, "CC=CC");
+    },
+  },
+  {
+    name: "E1 heat conditions eliminate tertiary alkyl halides to a Zaitsev alkene",
+    run() {
+      const [candidate] = productsFor("CC(C)(Br)C", solvolysisHeat);
+      assert.equal(candidate.label, "Major E1 alkene");
+      assert.equal(candidate.productSmiles, "C=C(C)C");
+    },
+  },
+  {
+    name: "E1 heat conditions reject ordinary primary alkyl halides",
+    run() {
+      const [candidate] = productsFor("CCBr", solvolysisHeat);
+      assert.equal(candidate.label, "No useful E1 elimination");
+      assert.equal(candidate.bucket, "none");
     },
   },
   {
