@@ -548,14 +548,28 @@ select:focus {
 }
 
 .history li {
-  align-items: center;
   background: var(--surface-2);
+  border-radius: 6px;
+  color: var(--ink);
+  padding: 10px;
+}
+
+.path-step-restore {
+  align-items: center;
+  background: transparent;
   border-radius: 6px;
   color: var(--ink);
   display: grid;
   gap: 8px;
   grid-template-columns: 54px minmax(0, 1fr);
-  padding: 10px;
+  min-height: 0;
+  padding: 0;
+  text-align: left;
+  width: 100%;
+}
+
+.path-step-restore:hover {
+  background: rgb(19 122 99 / 8%);
 }
 
 .path-step img {
@@ -564,6 +578,12 @@ select:focus {
   border-radius: 6px;
   max-width: 54px;
   padding: 4px;
+}
+
+.path-step > a {
+  display: inline-block;
+  margin-left: 62px;
+  margin-top: 6px;
 }
 
 @media (max-width: 900px) {

@@ -486,6 +486,12 @@ els.startPuzzleBtn.addEventListener("click", () => {
   else clearPuzzle();
 });
 
+els.pathList.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-path-index]");
+  if (!button) return;
+  restorePathStep(Number(button.dataset.pathIndex));
+});
+
 document.querySelectorAll("[data-example]").forEach((button) => {
   button.addEventListener("click", () => {
     els.moleculeInput.value = button.dataset.example;
@@ -651,6 +657,7 @@ function selectMolecule(molecule, pathLabel) {
   state.active = withChemMetadata(molecule);
   state.path.push({
     label: pathLabel,
+    molecule: moleculeSnapshot(state.active),
     smiles: state.active.canonicalSmiles,
     structureKey: state.active.structureKey,
     imageUrl: state.active.imageUrl || imageUrlForSmiles(state.active.canonicalSmiles),
@@ -663,6 +670,48 @@ function selectMolecule(molecule, pathLabel) {
   renderMolecule();
   renderPath();
   renderPuzzle();
+  focusReagentInput();
+}
+
+function moleculeSnapshot(molecule) {
+  return {
+    id: molecule.id,
+    cid: molecule.cid,
+    input: molecule.input,
+    inputType: molecule.inputType,
+    displayName: molecule.displayName,
+    canonicalSmiles: molecule.canonicalSmiles,
+    isomericSmiles: molecule.isomericSmiles || molecule.canonicalSmiles,
+    formula: molecule.formula || null,
+    molecularWeight: molecule.molecularWeight || null,
+    imageUrl: molecule.imageUrl || imageUrlForSmiles(molecule.canonicalSmiles),
+    pubchemUrl: molecule.pubchemUrl || pubChemUrlForMolecule(molecule),
+  };
+}
+
+function restorePathStep(index) {
+  if (!Number.isInteger(index) || index < 0 || index >= state.path.length) return;
+  const step = state.path[index];
+  state.path = state.path.slice(0, index + 1);
+  state.active = withChemMetadata(step.molecule || {
+    id: `path:${index}`,
+    displayName: step.label,
+    canonicalSmiles: step.smiles,
+    isomericSmiles: step.smiles,
+    imageUrl: step.imageUrl || imageUrlForSmiles(step.smiles),
+    pubchemUrl: step.pubchemUrl || pubChemUrlForSmiles(step.structureKey || step.smiles),
+  });
+  clearResults();
+  els.reagentInput.value = "";
+  els.resolvedReagent.innerHTML = "";
+  els.reagentInput.disabled = false;
+  els.applyBtn.disabled = false;
+  updatePuzzleSolvedState();
+  renderMode();
+  renderMolecule();
+  renderPath();
+  renderPuzzle();
+  setImportStatus(`Restored ${step.label}.`);
   focusReagentInput();
 }
 
@@ -818,17 +867,19 @@ function renderPath() {
   }
 
   els.pathList.innerHTML = state.path
-    .map((step) => `
+    .map((step, index) => `
       <li class="path-step">
-        <img src="${step.imageUrl || imageUrlForSmiles(step.smiles)}" alt="Structure for ${escapeHtml(step.label)}">
-        <div>
-          <strong>${escapeHtml(step.label)}</strong><br>
-          <code>${escapeHtml(step.smiles)}</code>
-          ${step.structureKey && step.structureKey !== step.smiles
-            ? `<br><small>graph: <code>${escapeHtml(step.structureKey)}</code></small>`
-            : ""}
-          <br><a href="${step.pubchemUrl || pubChemUrlForSmiles(step.structureKey || step.smiles)}" target="_blank" rel="noreferrer">PubChem</a>
-        </div>
+        <button class="path-step-restore" type="button" data-path-index="${index}" aria-label="Restore ${escapeHtml(step.label)}">
+          <img src="${step.imageUrl || imageUrlForSmiles(step.smiles)}" alt="Structure for ${escapeHtml(step.label)}">
+          <span>
+            <strong>${escapeHtml(step.label)}</strong><br>
+            <code>${escapeHtml(step.smiles)}</code>
+            ${step.structureKey && step.structureKey !== step.smiles
+              ? `<br><small>graph: <code>${escapeHtml(step.structureKey)}</code></small>`
+              : ""}
+          </span>
+        </button>
+        <a href="${step.pubchemUrl || pubChemUrlForSmiles(step.structureKey || step.smiles)}" target="_blank" rel="noreferrer">PubChem</a>
       </li>
     `)
     .join("");
