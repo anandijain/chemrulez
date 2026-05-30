@@ -162,6 +162,7 @@ const tests = [
   {
     name: "E2 with a normal strong base ranks the Zaitsev alkene major",
     run() {
+      assert.equal(context.resolveKnownReagent("ethoxide").id, "e2_base");
       const candidates = productsFor("CC(Br)CC", ethoxideHeat);
       assert.equal(candidates[0].label, "Major E2 alkene");
       assert.equal(candidates[0].productSmiles, "CC=CC");
@@ -191,6 +192,38 @@ const tests = [
       const [candidate] = productsFor("CCBr", solvolysisHeat);
       assert.equal(candidate.label, "No useful E1 elimination");
       assert.equal(candidate.bucket, "none");
+    },
+  },
+  {
+    name: "very strong base converts vicinal dibromides to alkynes",
+    run() {
+      const [candidate] = productsFor("C(Br)C(Br)C", NaNH2);
+      assert.equal(candidate.label, "Double dehydrohalogenation to alkyne");
+      assert.equal(candidate.productSmiles, "C#CC");
+    },
+  },
+  {
+    name: "alkoxide base stops vicinal dibromide elimination at vinyl halide",
+    run() {
+      const [candidate] = productsFor("C(Br)C(Br)C", ethoxideHeat);
+      assert.equal(candidate.label, "Vinyl halide after one elimination");
+      assert.equal(candidate.productSmiles, "C=C(C)Br");
+    },
+  },
+  {
+    name: "alkoxide base does not over-eliminate vinyl halides",
+    run() {
+      const [candidate] = productsFor("C=C(C)Br", ethoxideHeat);
+      assert.equal(candidate.label, "Vinyl halide needs a stronger base");
+      assert.equal(candidate.productSmiles, "C=C(C)Br");
+    },
+  },
+  {
+    name: "very strong base converts vinyl halides to alkynes",
+    run() {
+      const [candidate] = productsFor("C=C(C)Br", NaNH2);
+      assert.equal(candidate.label, "Dehydrohalogenation to alkyne");
+      assert.equal(candidate.productSmiles, "C#CC");
     },
   },
   {

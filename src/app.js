@@ -211,6 +211,7 @@ const reagentAliases = [
     id: "sodium_amide",
     canonical: "NaNH2",
     kind: "strong amide base",
+    baseStrength: "very_strong",
     aliases: [
       "nanh2",
       "na nh2",
@@ -219,6 +220,10 @@ const reagentAliases = [
       "sodiumamide",
       "sodium amid",
       "amide base",
+      "knh2",
+      "potassium amide",
+      "lda",
+      "lithium diisopropylamide",
     ],
   },
   {
@@ -301,15 +306,19 @@ const reagentAliases = [
     id: "hydroxide",
     canonical: "NaOH, H2O",
     kind: "hydroxide nucleophile",
+    baseStrength: "moderate",
     aliases: ["naoh", "oh-", "hydroxide", "aqueous hydroxide", "naoh h2o", "koh", "koh h2o"],
   },
   {
     id: "e2_base",
     canonical: "NaOEt, heat",
     kind: "strong base E2 conditions",
+    baseStrength: "strong",
     aliases: [
       "naoet",
       "naoet heat",
+      "eto-",
+      "ethoxide",
       "sodium ethoxide",
       "sodium ethoxide heat",
       "koh etoh",
@@ -325,6 +334,7 @@ const reagentAliases = [
     id: "bulky_e2_base",
     canonical: "t-BuOK, heat",
     kind: "bulky base E2 conditions",
+    baseStrength: "strong",
     aliases: [
       "tbuok",
       "t-buok",
@@ -1062,10 +1072,19 @@ function findReactionCandidates(molecule, resolution) {
   const alkylHalide = reagents.find((reagent) => reagent.kind.includes("alkyl halide"));
   const grignard = reagents.find((reagent) => reagent.kind.includes("Grignard"));
   const reagentIds = new Set(reagents.map((reagent) => reagent.id));
+  const baseStrength = baseStrengthForReagents(reagents);
   const substrateAlkylHalide = classifyAlkylHalide(molecule, molecule.displayName || molecule.canonicalSmiles);
 
   if (grignard && (hasCarbonyl(molecule.canonicalSmiles) || isCarbonDioxide(molecule.canonicalSmiles))) {
     return grignardReactionCandidates(molecule, grignard);
+  }
+
+  if (baseStrength && hasVicinalDihalide(molecule.canonicalSmiles)) {
+    return vicinalDihalideDehydrohalogenationCandidates(molecule, baseStrength);
+  }
+
+  if (baseStrength && hasVinylHalide(molecule.canonicalSmiles)) {
+    return vinylHalideDehydrohalogenationCandidates(molecule, baseStrength);
   }
 
   if (substrateAlkylHalide && isEliminationCondition(reagentIds)) {
@@ -1966,6 +1985,16 @@ function hasAlkene(smiles) {
   return moleculeFromSmiles(smiles).hasCarbonCarbonBondOrder(2);
 }
 
+function hasVicinalDihalide(smiles) {
+  const molecule = moleculeFromSmiles(smiles);
+  return Boolean(molecule.graph && findFirstVicinalDihalide(molecule.graph));
+}
+
+function hasVinylHalide(smiles) {
+  const molecule = moleculeFromSmiles(smiles);
+  return Boolean(molecule.graph && findFirstVinylHalide(molecule.graph));
+}
+
 function hasEpoxide(smiles) {
   return Boolean(moleculeFromSmiles(smiles).findFirstEpoxide());
 }
@@ -2243,8 +2272,204 @@ function isAllylicFragment(smiles) {
   return /C=CC$/.test(smiles);
 }
 
+function baseStrengthForReagents(reagents) {
+  const ranks = { moderate: 1, strong: 2, very_strong: 3 };
+  return reagents
+    .map((reagent) => reagent.baseStrength || baseStrengthForReagentId(reagent.id))
+    .filter(Boolean)
+    .sort((left, right) => ranks[right] - ranks[left])[0] || null;
+}
+
+function baseStrengthForReagentId(id) {
+  if (id === "sodium_amide") return "very_strong";
+  if (id === "e2_base" || id === "bulky_e2_base") return "strong";
+  if (id === "hydroxide") return "moderate";
+  return null;
+}
+
+function baseStrengthAtLeast(baseStrength, threshold) {
+  const ranks = { moderate: 1, strong: 2, very_strong: 3 };
+  return (ranks[baseStrength] || 0) >= ranks[threshold];
+}
+
 function isEliminationCondition(reagentIds) {
   return reagentIds.has("e2_base") || reagentIds.has("bulky_e2_base") || reagentIds.has("e1_heat");
+}
+
+function vicinalDihalideDehydrohalogenationCandidates(molecule, baseStrength) {
+  let parsed;
+  try {
+    parsed = chem.fromSmiles(molecule.canonicalSmiles);
+  } catch (error) {
+    return [];
+  }
+
+  const vicinal = findFirstVicinalDihalide(parsed.graph);
+  if (!vicinal) return [];
+
+  if (!baseStrengthAtLeast(baseStrength, "very_strong")) {
+    const vinylHalide = vicinalDihalideToVinylHalide(parsed.graph, vicinal);
+    return [
+      {
+        id: "vicinal_dihalide_partial_dehydrohalogenation",
+        label: "Vinyl halide after one elimination",
+        productName: `${molecule.displayName} partial dehydrohalogenation product`,
+        productSmiles: vinylHalide || molecule.canonicalSmiles,
+        bucket: "moderate",
+        confidence: 0.68,
+        explanation: [
+          "Alkoxide-style strong bases can do ordinary E2 dehydrohalogenation on alkyl halides.",
+          "The second elimination from a vinyl halide is substantially harder and usually needs a much stronger amide base.",
+          "Use excess NaNH2, KNH2, or LDA-class conditions when the target is an alkyne.",
+        ],
+      },
+    ];
+  }
+
+  const alkyne = vicinalDihalideToAlkyne(parsed.graph, vicinal);
+  return [
+    {
+      id: "vicinal_dihalide_double_dehydrohalogenation",
+      label: "Double dehydrohalogenation to alkyne",
+      productName: `${molecule.displayName} alkyne`,
+      productSmiles: alkyne || molecule.canonicalSmiles,
+      bucket: "high",
+      confidence: 0.82,
+      explanation: [
+        "A vicinal dihalide can undergo two base-promoted dehydrohalogenations.",
+        "The first elimination gives a vinyl halide; the second requires a very strong base.",
+        "The product is shown as the neutral alkyne, corresponding to acidic workup after excess amide base for terminal alkynes.",
+      ],
+    },
+  ];
+}
+
+function vinylHalideDehydrohalogenationCandidates(molecule, baseStrength) {
+  let parsed;
+  try {
+    parsed = chem.fromSmiles(molecule.canonicalSmiles);
+  } catch (error) {
+    return [];
+  }
+
+  const vinylHalide = findFirstVinylHalide(parsed.graph);
+  if (!vinylHalide) return [];
+
+  if (!baseStrengthAtLeast(baseStrength, "very_strong")) {
+    return [
+      {
+        id: "vinyl_halide_needs_stronger_base",
+        label: "Vinyl halide needs a stronger base",
+        productName: molecule.displayName,
+        productSmiles: molecule.canonicalSmiles,
+        bucket: "none",
+        confidence: 0.78,
+        explanation: [
+          "This substrate is already a vinyl halide.",
+          "Alkoxide-style bases are not strong enough for the second dehydrohalogenation to an alkyne.",
+          "Use excess NaNH2, KNH2, or LDA-class conditions for the vinyl halide to alkyne step.",
+        ],
+      },
+    ];
+  }
+
+  const alkyne = vinylHalideToAlkyne(parsed.graph, vinylHalide);
+  return [
+    {
+      id: "vinyl_halide_dehydrohalogenation",
+      label: "Dehydrohalogenation to alkyne",
+      productName: `${molecule.displayName} alkyne`,
+      productSmiles: alkyne || molecule.canonicalSmiles,
+      bucket: "high",
+      confidence: 0.8,
+      explanation: [
+        "Very strong base can dehydrohalogenate vinyl halides.",
+        "The carbon-halogen bond is removed and the alkene is promoted to an alkyne.",
+        "Terminal alkyne products are shown neutral, corresponding to acid workup.",
+      ],
+    },
+  ];
+}
+
+function findFirstVicinalDihalide(graph) {
+  for (const bond of graph.bonds) {
+    if (bond.order !== 1) continue;
+    if (atomElement(graph.atoms[bond.from]) !== "C" || atomElement(graph.atoms[bond.to]) !== "C") continue;
+    const halogenA = halogenNeighbor(graph, bond.from, bond.to);
+    const halogenB = halogenNeighbor(graph, bond.to, bond.from);
+    if (halogenA && halogenB) {
+      return {
+        carbonA: bond.from,
+        carbonB: bond.to,
+        halogenA,
+        halogenB,
+      };
+    }
+  }
+  return null;
+}
+
+function findFirstVinylHalide(graph) {
+  for (const atom of graph.atoms) {
+    if (!["CL", "BR", "I"].includes(atomElement(atom))) continue;
+    const halogenCarbon = graphNeighbors(graph, atom.id)
+      .find((neighbor) => atomElement(graph.atoms[neighbor.atomIndex]) === "C");
+    if (!halogenCarbon) continue;
+    const alkeneNeighbor = graphNeighbors(graph, halogenCarbon.atomIndex)
+      .find((neighbor) => {
+        return neighbor.atomIndex !== atom.id
+          && neighbor.bond.order === 2
+          && atomElement(graph.atoms[neighbor.atomIndex]) === "C"
+          && implicitHydrogenCount(graph, neighbor.atomIndex) > 0;
+      });
+    if (alkeneNeighbor) {
+      return {
+        halogen: atom.id,
+        halogenCarbon: halogenCarbon.atomIndex,
+        betaCarbon: alkeneNeighbor.atomIndex,
+        alkeneBondIndex: alkeneNeighbor.bondIndex,
+      };
+    }
+  }
+  return null;
+}
+
+function halogenNeighbor(graph, carbonIndex, excludedCarbon) {
+  return graphNeighbors(graph, carbonIndex)
+    .filter((neighbor) => neighbor.atomIndex !== excludedCarbon)
+    .find((neighbor) => ["CL", "BR", "I"].includes(atomElement(graph.atoms[neighbor.atomIndex])))
+    ?.atomIndex || null;
+}
+
+function vicinalDihalideToVinylHalide(graph, vicinal) {
+  const product = cloneGraph(graph);
+  removeGraphBond(product, vicinal.carbonA, vicinal.halogenA);
+  const carbonBond = graphBondBetween(product, vicinal.carbonA, vicinal.carbonB);
+  if (!carbonBond) return null;
+  carbonBond.order = 2;
+  product.root = vicinal.carbonA;
+  return smilesFromConnectedComponent(product, product.root, new Set([vicinal.halogenA]));
+}
+
+function vicinalDihalideToAlkyne(graph, vicinal) {
+  const product = cloneGraph(graph);
+  removeGraphBond(product, vicinal.carbonA, vicinal.halogenA);
+  removeGraphBond(product, vicinal.carbonB, vicinal.halogenB);
+  const carbonBond = graphBondBetween(product, vicinal.carbonA, vicinal.carbonB);
+  if (!carbonBond) return null;
+  carbonBond.order = 3;
+  product.root = vicinal.carbonA;
+  return smilesFromConnectedComponent(product, product.root, new Set([vicinal.halogenA, vicinal.halogenB]));
+}
+
+function vinylHalideToAlkyne(graph, vinylHalide) {
+  const product = cloneGraph(graph);
+  removeGraphBond(product, vinylHalide.halogenCarbon, vinylHalide.halogen);
+  const alkeneBond = graphBondBetween(product, vinylHalide.halogenCarbon, vinylHalide.betaCarbon);
+  if (!alkeneBond) return null;
+  alkeneBond.order = 3;
+  product.root = vinylHalide.betaCarbon;
+  return smilesFromConnectedComponent(product, product.root, new Set([vinylHalide.halogen]));
 }
 
 function eliminationCandidates(molecule, alkylHalide, reagentIds) {
@@ -2316,6 +2541,7 @@ function eliminationCandidates(molecule, alkylHalide, reagentIds) {
 function alkylHalideEliminationProducts(graph, halide, mode) {
   const betaCarbons = graphNeighbors(graph, halide.carbon)
     .filter((neighbor) => neighbor.atomIndex !== halide.halogen)
+    .filter((neighbor) => neighbor.bond.order === 1)
     .filter((neighbor) => atomElement(graph.atoms[neighbor.atomIndex]) === "C")
     .filter((neighbor) => implicitHydrogenCount(graph, neighbor.atomIndex) > 0);
 
