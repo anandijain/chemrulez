@@ -156,6 +156,19 @@ h2 {
   margin-top: 8px;
 }
 
+.build-link {
+  color: var(--muted);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.82rem;
+  margin-left: 8px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.build-link:hover {
+  color: var(--accent-dark);
+}
+
 .panel,
 .molecule-view,
 .history,

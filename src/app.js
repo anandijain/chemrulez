@@ -188,7 +188,8 @@ const els = {
   importPanel: document.querySelector("#importPanel"),
   moleculeInput: document.querySelector("#moleculeInput"),
   importStatus: document.querySelector("#importStatus"),
-  modeIntro: document.querySelector("#modeIntro"),
+  modeIntroText: document.querySelector("#modeIntroText"),
+  commitLink: document.querySelector("#commitLink"),
   freePlayLink: document.querySelector("#freePlayLink"),
   puzzlesLink: document.querySelector("#puzzlesLink"),
   puzzleSelect: document.querySelector("#puzzleSelect"),
@@ -815,7 +816,7 @@ function renderMode() {
   els.startPuzzleBtn.disabled = !isPuzzleMode;
   els.freePlayLink.classList.toggle("active", !isPuzzleMode);
   els.puzzlesLink.classList.toggle("active", isPuzzleMode);
-  els.modeIntro.textContent = isPuzzleMode
+  els.modeIntroText.textContent = isPuzzleMode
     ? "Solve a target synthesis without revealing the reagent path."
     : "Import a molecule, then transform it step by step.";
 }
@@ -2892,6 +2893,15 @@ function setImportStatus(message, isError = false) {
   els.importStatus.classList.toggle("error", isError);
 }
 
+function initCommitLink() {
+  const sha = els.commitLink?.dataset.commitSha || "";
+  if (!els.commitLink || !sha || sha.includes("__COMMIT_SHA__")) return;
+  els.commitLink.hidden = false;
+  els.commitLink.textContent = sha.slice(0, 7);
+  els.commitLink.href = `https://github.com/anandijain/chemrulez/commit/${encodeURIComponent(sha)}`;
+  els.commitLink.title = `Deployed commit ${sha}`;
+}
+
 function escapeHtml(value) {
   return String(value)
     .replaceAll("&", "&amp;")
@@ -2901,6 +2911,7 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+initCommitLink();
 populatePuzzleSelect();
 renderMode();
 renderPuzzle();

@@ -27,6 +27,10 @@ jobs:
         uses: actions/configure-pages@v5
         with:
           enablement: true
+      - name: Stamp commit hash
+        run: |
+          short_sha="${GITHUB_SHA::7}"
+          sed -i "s/__COMMIT_SHA__/${GITHUB_SHA}/g; s/__COMMIT_SHORT__/${short_sha}/g" index.html
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:

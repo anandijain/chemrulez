@@ -12,7 +12,16 @@
         <header class="topbar">
           <div>
             <h1>chemrulez</h1>
-            <p id="modeIntro">Import a molecule, then transform it step by step.</p>
+            <p id="modeIntro">
+              <span id="modeIntroText">Import a molecule, then transform it step by step.</span>
+              <a
+                id="commitLink"
+                class="build-link"
+                href="https://github.com/anandijain/chemrulez/commit/__COMMIT_SHA__"
+                data-commit-sha="__COMMIT_SHA__"
+                hidden
+              >__COMMIT_SHORT__</a>
+            </p>
           </div>
           <nav class="mode-nav" aria-label="Mode">
             <a id="freePlayLink" href="./">Free play</a>
