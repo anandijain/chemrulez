@@ -694,12 +694,28 @@ function renderMolecule() {
         <div class="meta-grid">
           ${metaItem("Canonical SMILES", molecule.canonicalSmiles)}
           ${metaItem("Graph key", molecule.structureKey || molecule.canonicalSmiles)}
-          ${metaItem("Formula", molecule.formula || "unknown")}
-          ${metaItem("Molecular weight", molecule.molecularWeight || "unknown")}
+          ${optionalMetaItem("Formula", molecule.formula)}
+          ${optionalMetaItem("Molecular weight", molecule.molecularWeight)}
           ${molecule.cid ? metaItem("PubChem CID", molecule.cid) : ""}
+          ${pubChemMetaItem(molecule)}
         </div>
       </div>
     </article>
+  `;
+}
+
+function optionalMetaItem(label, value) {
+  if (!value || value === "derived" || value === "puzzle" || value === "unknown") return "";
+  return metaItem(label, value);
+}
+
+function pubChemMetaItem(molecule) {
+  const url = molecule.pubchemUrl || pubChemUrlForMolecule(molecule);
+  return `
+    <div class="meta-item">
+      <span>PubChem</span>
+      <a href="${url}" target="_blank" rel="noreferrer">Open current substrate</a>
+    </div>
   `;
 }
 
@@ -2431,9 +2447,10 @@ function renderCandidates(candidates, resolution) {
         displayName: candidate.productName,
         canonicalSmiles: candidate.productSmiles,
         isomericSmiles: candidate.productSmiles,
-        formula: "derived",
-        molecularWeight: "derived",
+        formula: null,
+        molecularWeight: null,
         imageUrl: imageUrlForSmiles(candidate.productSmiles),
+        pubchemUrl: pubChemUrlForSmiles(candidate.productSmiles),
       };
       selectMolecule(product, `${formatReagentLabel(resolution)} -> ${candidate.label}`);
       clearResults();

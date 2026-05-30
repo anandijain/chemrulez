@@ -2,6 +2,8 @@
 
 First iteration of an organic chemistry synthesis sandbox.
 
+Live demo: https://anandijain.github.io/chemrulez/
+
 ## Run
 
 Serve the directory with any static file server:
