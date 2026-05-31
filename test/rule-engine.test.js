@@ -11,7 +11,10 @@ function makeElement() {
     innerHTML: "",
     textContent: "",
     value: "",
+    hidden: false,
+    tagName: "div",
     addEventListener() {},
+    focus() {},
     querySelector() {
       return makeElement();
     },
@@ -34,6 +37,7 @@ const context = {
   },
   document: {
     body: makeElement(),
+    addEventListener() {},
     querySelector() {
       return makeElement();
     },
@@ -335,6 +339,15 @@ const tests = [
       const alkene = context.findFirstCarbonCarbonBondOrder(graph, 2);
       assert.equal(alkene.stereo, "cis");
       assert.equal(context.smilesFromGraph(graph), "C/C=C\\CCO");
+    },
+  },
+  {
+    name: "RDKit canonicalization cannot strip recovered alkene stereo",
+    run() {
+      assert.equal(
+        context.canonicalSmilesForParsedMolecule("C/C=C\\CCBr", "CC=CCCBr", "C/C=C\\CCBr"),
+        "C/C=C\\CCBr",
+      );
     },
   },
   {

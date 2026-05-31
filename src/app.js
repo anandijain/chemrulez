@@ -6,6 +6,7 @@ const pubchemBase = "https://pubchem.ncbi.nlm.nih.gov/rest/pug";
 const state = {
   active: null,
   path: [],
+  redoStack: [],
   puzzle: null,
   target: null,
   solved: false,
@@ -27,9 +28,10 @@ const chem = {
     const rdkitCanonical = rdkitMol ? safeRdkitCall(() => rdkitMol.get_smiles()) : null;
     rdkitMol?.delete?.();
     const canSerialize = !graph.hasDisconnectedComponents;
+    const graphSmiles = canSerialize ? smilesFromGraph(graph) : smiles;
     return {
       graph,
-      canonicalSmiles: rdkitCanonical || (canSerialize ? smilesFromGraph(graph) : smiles),
+      canonicalSmiles: canonicalSmilesForParsedMolecule(smiles, rdkitCanonical, graphSmiles),
       structureEngine: rdkitCanonical ? "RDKit.js" : "local graph",
       hasBondOrder(order) {
         return graph.bonds.some((bond) => bond.order === order);
@@ -245,6 +247,9 @@ const els = {
   pathList: document.querySelector("#pathList"),
   copyPathBtn: document.querySelector("#copyPathBtn"),
   resetBtn: document.querySelector("#resetBtn"),
+  shortcutsBtn: document.querySelector("#shortcutsBtn"),
+  shortcutsOverlay: document.querySelector("#shortcutsOverlay"),
+  shortcutsCloseBtn: document.querySelector("#shortcutsCloseBtn"),
 };
 
 els.importForm.addEventListener("submit", async (event) => {
@@ -288,23 +293,15 @@ els.reagentInput.addEventListener("input", () => {
 });
 
 els.resetBtn.addEventListener("click", () => {
-  state.active = null;
-  state.path = [];
-  state.puzzle = null;
-  state.target = null;
-  state.solved = false;
-  els.puzzleSelect.value = "";
-  els.moleculeInput.value = "";
-  els.reagentInput.value = "";
-  els.reagentInput.disabled = true;
-  els.applyBtn.disabled = true;
-  clearResults();
-  els.resolvedReagent.innerHTML = "";
-  renderMode();
-  renderPuzzle();
-  renderMolecule();
-  renderPath();
+  resetWorkspace();
 });
+
+els.shortcutsBtn.addEventListener("click", () => toggleShortcuts(true));
+els.shortcutsCloseBtn.addEventListener("click", () => toggleShortcuts(false));
+els.shortcutsOverlay.addEventListener("click", (event) => {
+  if (event.target === els.shortcutsOverlay) toggleShortcuts(false);
+});
+document.addEventListener("keydown", handleGlobalShortcut);
 
 els.startPuzzleBtn.addEventListener("click", () => {
   const puzzle = synthesisPuzzles.find((item) => item.id === els.puzzleSelect.value);
@@ -428,20 +425,24 @@ function moleculeFromRDKitSmiles(smiles, rawInput) {
   const mol = getRdkitMol(smiles);
   if (!mol) return null;
   const canonicalSmiles = safeRdkitCall(() => mol.get_smiles()) || smiles;
+  const graph = graphFromRdkitMol(mol);
+  applyAlkeneStereoFromSmiles(graph, smiles);
+  const graphSmiles = graph.hasDisconnectedComponents ? smiles : smilesFromGraph(graph);
+  const resolvedSmiles = canonicalSmilesForParsedMolecule(smiles, canonicalSmiles, graphSmiles);
   const descriptors = safeRdkitCall(() => JSON.parse(mol.get_descriptors())) || {};
   mol.delete?.();
   return {
-    id: `rdkit:${canonicalSmiles}`,
+    id: `rdkit:${resolvedSmiles}`,
     cid: null,
     input: rawInput,
     inputType: "smiles",
-    displayName: rawInput === smiles ? canonicalSmiles : rawInput,
-    canonicalSmiles,
-    isomericSmiles: canonicalSmiles,
+    displayName: rawInput === smiles ? resolvedSmiles : rawInput,
+    canonicalSmiles: resolvedSmiles,
+    isomericSmiles: resolvedSmiles,
     formula: descriptors.formula || "derived",
     molecularWeight: descriptors.exactmw ? Number(descriptors.exactmw).toFixed(2) : "derived",
-    imageUrl: imageUrlForSmiles(canonicalSmiles),
-    pubchemUrl: pubChemUrlForSmiles(canonicalSmiles),
+    imageUrl: imageUrlForSmiles(resolvedSmiles),
+    pubchemUrl: pubChemUrlForSmiles(resolvedSmiles),
   };
 }
 
@@ -506,6 +507,7 @@ function startPuzzle(puzzle) {
   state.solved = false;
   state.active = null;
   state.path = [];
+  state.redoStack = [];
   clearResults();
   els.resolvedReagent.innerHTML = "";
   els.reagentInput.value = "";
@@ -523,6 +525,7 @@ function clearPuzzle() {
 
 function selectMolecule(molecule, pathLabel) {
   state.active = withChemMetadata(molecule);
+  state.redoStack = [];
   state.path.push({
     label: pathLabel,
     molecule: moleculeSnapshot(state.active),
@@ -539,6 +542,28 @@ function selectMolecule(molecule, pathLabel) {
   renderPath();
   renderPuzzle();
   focusReagentInput();
+}
+
+function resetWorkspace() {
+  state.active = null;
+  state.path = [];
+  state.redoStack = [];
+  state.puzzle = null;
+  state.target = null;
+  state.solved = false;
+  els.puzzleSelect.value = "";
+  els.moleculeInput.value = "";
+  els.reagentInput.value = "";
+  els.reagentInput.disabled = true;
+  els.applyBtn.disabled = true;
+  clearResults();
+  els.resolvedReagent.innerHTML = "";
+  renderMode();
+  renderPuzzle();
+  renderMolecule();
+  renderPath();
+  setImportStatus("");
+  focusMoleculeInput();
 }
 
 function moleculeSnapshot(molecule) {
@@ -561,14 +586,8 @@ function restorePathStep(index) {
   if (!Number.isInteger(index) || index < 0 || index >= state.path.length) return;
   const step = state.path[index];
   state.path = state.path.slice(0, index + 1);
-  state.active = withChemMetadata(step.molecule || {
-    id: `path:${index}`,
-    displayName: step.label,
-    canonicalSmiles: step.smiles,
-    isomericSmiles: step.smiles,
-    imageUrl: step.imageUrl || imageUrlForSmiles(step.smiles),
-    pubchemUrl: step.pubchemUrl || pubChemUrlForSmiles(step.structureKey || step.smiles),
-  });
+  state.redoStack = [];
+  restoreActiveMoleculeFromStep(step, index);
   clearResults();
   els.reagentInput.value = "";
   els.resolvedReagent.innerHTML = "";
@@ -581,6 +600,70 @@ function restorePathStep(index) {
   renderPuzzle();
   setImportStatus(`Restored ${step.label}.`);
   focusReagentInput();
+}
+
+function undoPathStep() {
+  if (!state.path.length) return;
+  const undone = state.path.pop();
+  state.redoStack.push(undone);
+  clearResults();
+  els.reagentInput.value = "";
+  els.resolvedReagent.innerHTML = "";
+
+  if (!state.path.length) {
+    state.active = null;
+    state.solved = false;
+    els.reagentInput.disabled = true;
+    els.applyBtn.disabled = true;
+    renderMode();
+    renderMolecule();
+    renderPath();
+    renderPuzzle();
+    setImportStatus("Undid molecule import.");
+    focusMoleculeInput();
+    return;
+  }
+
+  restoreActiveMoleculeFromStep(state.path[state.path.length - 1], state.path.length - 1);
+  els.reagentInput.disabled = false;
+  els.applyBtn.disabled = false;
+  updatePuzzleSolvedState();
+  renderMode();
+  renderMolecule();
+  renderPath();
+  renderPuzzle();
+  setImportStatus(`Undid ${undone.label}.`);
+  focusReagentInput();
+}
+
+function redoPathStep() {
+  const step = state.redoStack.pop();
+  if (!step) return;
+  state.path.push(step);
+  restoreActiveMoleculeFromStep(step, state.path.length - 1);
+  clearResults();
+  els.reagentInput.value = "";
+  els.resolvedReagent.innerHTML = "";
+  els.reagentInput.disabled = false;
+  els.applyBtn.disabled = false;
+  updatePuzzleSolvedState();
+  renderMode();
+  renderMolecule();
+  renderPath();
+  renderPuzzle();
+  setImportStatus(`Redid ${step.label}.`);
+  focusReagentInput();
+}
+
+function restoreActiveMoleculeFromStep(step, index) {
+  state.active = withChemMetadata(step.molecule || {
+    id: `path:${index}`,
+    displayName: step.label,
+    canonicalSmiles: step.smiles,
+    isomericSmiles: step.smiles,
+    imageUrl: step.imageUrl || imageUrlForSmiles(step.smiles),
+    pubchemUrl: step.pubchemUrl || pubChemUrlForSmiles(step.structureKey || step.smiles),
+  });
 }
 
 function renderMolecule() {
@@ -1818,6 +1901,17 @@ function graphFromRdkitMol(mol) {
   };
   annotateDoubleBondStereo(graph);
   return graph;
+}
+
+function canonicalSmilesForParsedMolecule(inputSmiles, rdkitCanonical, graphSmiles) {
+  if (hasDirectionalAlkeneStereo(inputSmiles) && !hasDirectionalAlkeneStereo(rdkitCanonical)) {
+    return graphSmiles || inputSmiles;
+  }
+  return rdkitCanonical || graphSmiles || inputSmiles;
+}
+
+function hasDirectionalAlkeneStereo(smiles) {
+  return /[\\/].*=.*[\\/]/.test(smiles || "");
 }
 
 function rdkitAtomToken(atom) {
@@ -3372,6 +3466,85 @@ function focusReagentInput() {
       els.reagentInput.focus({ preventScroll: true });
     }
   });
+}
+
+function focusMoleculeInput() {
+  const focusLater = typeof requestAnimationFrame === "function" ? requestAnimationFrame : setTimeout;
+  focusLater(() => {
+    if (typeof els.moleculeInput.focus === "function") {
+      els.moleculeInput.focus({ preventScroll: true });
+    }
+  });
+}
+
+function focusPrimaryInput() {
+  if (state.active && !els.reagentInput.disabled) {
+    focusReagentInput();
+  } else {
+    focusMoleculeInput();
+  }
+}
+
+function handleGlobalShortcut(event) {
+  const key = event.key.toLowerCase();
+  const commandKey = event.ctrlKey || event.metaKey;
+  const inTextField = isTextEditingTarget(event.target);
+
+  if (commandKey && key === "/") {
+    event.preventDefault();
+    toggleShortcuts();
+    return;
+  }
+
+  if (key === "escape" && !els.shortcutsOverlay.hidden) {
+    event.preventDefault();
+    toggleShortcuts(false);
+    return;
+  }
+
+  if (!commandKey && key === "/" && !inTextField) {
+    event.preventDefault();
+    focusPrimaryInput();
+    return;
+  }
+
+  if (commandKey && key === "r") {
+    event.preventDefault();
+    resetWorkspace();
+    return;
+  }
+
+  const allowRouteUndoFromTextField = !inTextField || !event.target.value;
+  if (!allowRouteUndoFromTextField) return;
+
+  if (commandKey && key === "z") {
+    event.preventDefault();
+    if (event.shiftKey) redoPathStep();
+    else undoPathStep();
+    return;
+  }
+
+  if (commandKey && key === "y") {
+    event.preventDefault();
+    redoPathStep();
+  }
+}
+
+function isTextEditingTarget(target) {
+  if (!target) return false;
+  const tag = target.tagName?.toLowerCase();
+  return tag === "input" || tag === "textarea" || target.isContentEditable;
+}
+
+function toggleShortcuts(forceOpen) {
+  const shouldOpen = typeof forceOpen === "boolean" ? forceOpen : els.shortcutsOverlay.hidden;
+  els.shortcutsOverlay.hidden = !shouldOpen;
+  document.body.classList.toggle("shortcuts-open", shouldOpen);
+  if (shouldOpen) {
+    els.shortcutsCloseBtn.focus({ preventScroll: true });
+  } else {
+    focusPrimaryInput();
+  }
 }
 
 function puzzleProgressMessage(candidate) {

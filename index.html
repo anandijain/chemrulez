@@ -27,6 +27,7 @@
           <nav class="mode-nav" aria-label="Mode">
             <a id="freePlayLink" href="./">Free play</a>
             <a id="puzzlesLink" href="./?mode=puzzles">Puzzles</a>
+            <button id="shortcutsBtn" class="ghost" type="button">Shortcuts</button>
             <button id="resetBtn" class="ghost">Reset</button>
           </nav>
         </header>
@@ -92,6 +93,23 @@
         <ol id="pathList"></ol>
       </aside>
     </main>
+
+    <div id="shortcutsOverlay" class="shortcut-overlay" hidden>
+      <section class="shortcut-dialog" role="dialog" aria-modal="true" aria-labelledby="shortcutsTitle">
+        <div class="shortcut-heading">
+          <h2 id="shortcutsTitle">Shortcuts</h2>
+          <button id="shortcutsCloseBtn" class="ghost iconish" type="button" aria-label="Close shortcuts">Close</button>
+        </div>
+        <dl class="shortcut-list">
+          <div><dt><kbd>/</kbd></dt><dd>Focus reagents, or molecule search when no molecule is loaded</dd></div>
+          <div><dt><kbd>Ctrl</kbd><span>+</span><kbd>Z</kbd></dt><dd>Undo the last pathway step</dd></div>
+          <div><dt><kbd>Ctrl</kbd><span>+</span><kbd>Shift</kbd><span>+</span><kbd>Z</kbd></dt><dd>Redo a pathway step</dd></div>
+          <div><dt><kbd>Ctrl</kbd><span>+</span><kbd>Y</kbd></dt><dd>Redo a pathway step</dd></div>
+          <div><dt><kbd>Ctrl</kbd><span>+</span><kbd>R</kbd></dt><dd>Reset the workspace</dd></div>
+          <div><dt><kbd>Ctrl</kbd><span>+</span><kbd>/</kbd></dt><dd>Show or hide this list</dd></div>
+        </dl>
+      </section>
+    </div>
 
     <script src="./src/app.js" type="module"></script>
   </body>
