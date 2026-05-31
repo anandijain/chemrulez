@@ -1448,6 +1448,9 @@ function epoxideReactionCandidates(molecule, reagentIds) {
 }
 
 function carbocationAdditionCandidates(molecule, group, reactionName) {
+  const regioisomers = tiedAlkeneAdditionCandidates(molecule, group, reactionName);
+  if (regioisomers.length > 1) return regioisomers;
+
   const normalProduct = addAcrossFirstAlkene(molecule.canonicalSmiles, group, "H", "markovnikov");
   const normalCandidate = candidate({
     id: `alkene_${reactionName.replaceAll(" ", "_")}_normal`,
@@ -1491,6 +1494,53 @@ function carbocationAdditionCandidates(molecule, group, reactionName) {
       confidence: 0.62,
     },
   ];
+}
+
+function tiedAlkeneAdditionCandidates(molecule, group, reactionName) {
+  let parsed;
+  try {
+    parsed = chem.fromSmiles(molecule.canonicalSmiles);
+  } catch (error) {
+    return [];
+  }
+
+  const alkene = findFirstCarbonCarbonBondOrder(parsed.graph, 2);
+  if (!alkene) return [];
+  const scoreFrom = alkeneSubstitutionScore(parsed.graph, alkene.from, alkene);
+  const scoreTo = alkeneSubstitutionScore(parsed.graph, alkene.to, alkene);
+  if (scoreFrom !== scoreTo) return [];
+
+  const products = [
+    alkeneAdditionProductWithGroupOnCarbon(parsed.graph, alkene, alkene.from, group),
+    alkeneAdditionProductWithGroupOnCarbon(parsed.graph, alkene, alkene.to, group),
+  ].filter(Boolean);
+  const uniqueProducts = [...new Set(products)];
+  if (uniqueProducts.length < 2) return [];
+
+  return uniqueProducts.map((productSmiles, index) => candidate({
+    id: `alkene_${reactionName.replaceAll(" ", "_")}_regioisomer_${index + 1}`,
+    label: `${reactionName === "hydrohalogenation" ? "HBr" : reactionName} regioisomer ${index + 1}`,
+    productName: `${molecule.displayName} ${reactionName} regioisomer`,
+    productSmiles,
+    bucket: "mixture",
+    confidence: 0.48,
+    explanation: [
+      `${reactionName} can add across this alkene in more than one constitutional orientation in the current rule model.`,
+      "The alkene carbons have the same first-pass substitution score, so the app is showing regioisomeric products instead of choosing one as uniquely major.",
+      "Aromatic pi bonds are ignored for this rule; the reaction is being applied to the side-chain alkene.",
+    ],
+  }));
+}
+
+function alkeneAdditionProductWithGroupOnCarbon(graph, alkene, groupCarbon, group) {
+  const product = cloneGraph(graph);
+  const productBond = product.bonds[alkene.bondIndex];
+  if (!productBond) return null;
+  productBond.order = 1;
+  const otherCarbon = groupCarbon === alkene.from ? alkene.to : alkene.from;
+  addSubstituentAtom(product, groupCarbon, groupToAtomToken(group));
+  product.root = bestRootForProduct(product, groupCarbon);
+  return smilesFromGraph(product);
 }
 
 function classifyAlkylHalide(molecule, input) {
@@ -1739,12 +1789,18 @@ function graphFromRdkitMol(mol) {
   });
   const bonds = (molecule.bonds || []).map((bond) => {
     const merged = { ...bondDefaults, ...bond };
+    const aromatic = isRdkitAromaticBond(merged);
     return {
       from: merged.atoms[0],
       to: merged.atoms[1],
-      order: rdkitBondOrder(merged.bo),
+      order: rdkitBondOrder(merged.bo, aromatic),
+      aromatic,
     };
   });
+  for (const bond of bonds.filter((bond) => bond.aromatic)) {
+    atoms[bond.from].token = aromaticAtomToken(atoms[bond.from].token);
+    atoms[bond.to].token = aromaticAtomToken(atoms[bond.to].token);
+  }
   return {
     atoms,
     bonds,
@@ -1760,6 +1816,12 @@ function rdkitAtomToken(atom) {
   if (atom.chg === 1) return `[${symbol}+]`;
   if (atom.chg) return `[${symbol}${atom.chg > 0 ? "+" : ""}${atom.chg}]`;
   return symbol;
+}
+
+function aromaticAtomToken(token) {
+  const element = token.replace(/^\[/, "").replace(/\]$/, "");
+  if (["C", "N", "O", "S"].includes(element)) return element.toLowerCase();
+  return token;
 }
 
 function elementSymbol(atomicNumber) {
@@ -1780,7 +1842,12 @@ function elementSymbol(atomicNumber) {
   }[atomicNumber] || "C";
 }
 
-function rdkitBondOrder(order) {
+function isRdkitAromaticBond(bond) {
+  return bond.aromatic === true || bond.isAromatic === true || Number(bond.bo) === 1.5;
+}
+
+function rdkitBondOrder(order, aromatic = false) {
+  if (aromatic) return 1;
   const numeric = Number(order);
   if (numeric >= 2.5) return 3;
   if (numeric >= 1.5) return 2;

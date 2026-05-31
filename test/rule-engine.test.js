@@ -361,6 +361,43 @@ const tests = [
     },
   },
   {
+    name: "RDKit aromatic bonds are not treated as alkene pi bonds",
+    run() {
+      const graph = context.graphFromRdkitMol({
+        get_json() {
+          return JSON.stringify({
+            defaults: {
+              atom: { z: 6, impHs: 0, chg: 0 },
+              bond: { bo: 1 },
+            },
+            molecules: [{
+              atoms: [
+                {}, {}, {}, {}, {}, {},
+                { impHs: 2 }, { impHs: 1 }, { impHs: 1 }, { impHs: 3 },
+              ],
+              bonds: [
+                { atoms: [0, 1], bo: 1.5 },
+                { atoms: [1, 2], bo: 1.5 },
+                { atoms: [2, 3], bo: 1.5 },
+                { atoms: [3, 4], bo: 1.5 },
+                { atoms: [4, 5], bo: 1.5 },
+                { atoms: [5, 0], bo: 1.5 },
+                { atoms: [5, 6] },
+                { atoms: [6, 7] },
+                { atoms: [7, 8], bo: 2 },
+                { atoms: [8, 9] },
+              ],
+            }],
+          });
+        },
+      });
+      const alkene = context.findFirstCarbonCarbonBondOrder(graph, 2);
+      assert.equal(graph.atoms[0].token, "c");
+      assert.equal(alkene.from, 7);
+      assert.equal(alkene.to, 8);
+    },
+  },
+  {
     name: "PubChem links prefer CID then fall back to SMILES search",
     run() {
       assert.equal(
@@ -429,6 +466,16 @@ const tests = [
       const [anti] = productsFor("CC=C", HBrPeroxides);
       assert.equal(markovnikov.productSmiles, "CC(Br)C");
       assert.equal(anti.productSmiles, "CCCBr");
+    },
+  },
+  {
+    name: "HBr ignores aromatic pi bonds and shows side-chain alkene regioisomers",
+    run() {
+      const candidates = productsFor("c1ccccc1CC/C=C\\C", HBr);
+      assert.equal(candidates.length, 2);
+      assert.equal(candidates[0].bucket, "mixture");
+      assert.ok(candidates.every((candidate) => !/c1.*Br.*ccccc1/i.test(candidate.productSmiles)));
+      assert.ok(candidates.every((candidate) => candidate.productSmiles.includes("Br")));
     },
   },
   {
