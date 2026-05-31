@@ -575,6 +575,7 @@ function moleculeSnapshot(molecule) {
     displayName: molecule.displayName,
     canonicalSmiles: molecule.canonicalSmiles,
     isomericSmiles: molecule.isomericSmiles || molecule.canonicalSmiles,
+    structureKey: molecule.structureKey || molecule.canonicalSmiles,
     formula: molecule.formula || null,
     molecularWeight: molecule.molecularWeight || null,
     imageUrl: molecule.imageUrl || imageUrlForSmiles(molecule.canonicalSmiles),
@@ -729,7 +730,7 @@ function metaItem(label, value) {
 }
 
 function withChemMetadata(molecule) {
-  const parsed = moleculeFromSmiles(molecule.canonicalSmiles);
+  const parsed = moleculeFromSmiles(molecule.structureKey || molecule.canonicalSmiles);
   return {
     ...molecule,
     structureKey: parsed.canonicalSmiles,
@@ -1227,7 +1228,7 @@ function findReactionCandidates(molecule, resolution) {
 }
 
 function alkyneReactionCandidates(molecule, reagentIds) {
-  const smiles = molecule.canonicalSmiles;
+  const smiles = reactionSmilesForMolecule(molecule);
   if (reagentIds.has("h2_metal")) {
     return [
       candidate({

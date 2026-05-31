@@ -699,6 +699,26 @@ const tests = [
     },
   },
   {
+    name: "Lindlar carries aromatic graph keys forward before epoxidation",
+    run() {
+      const alkyne = {
+        ...molecule("aryl alkyne", "C1=CC=C(CCC#CC)C=C1"),
+        structureKey: "CC#CCCc1ccccc1",
+      };
+      const [lindlarProduct] = context.alkyneReactionCandidates(alkyne, new Set(["lindlar"]));
+      assert.match(lindlarProduct.productSmiles, /c1ccccc1/);
+      assert.doesNotMatch(lindlarProduct.productSmiles, /C1=CC=C/);
+
+      const alkene = {
+        ...molecule("aryl cis alkene", lindlarProduct.productSmiles),
+        structureKey: lindlarProduct.productSmiles,
+      };
+      const [epoxide] = context.alkeneReactionCandidates(alkene, new Set(["mcpba"]));
+      assert.match(epoxide.productSmiles, /c1ccccc1/);
+      assert.doesNotMatch(epoxide.productSmiles, /C1=CC2OC2/);
+    },
+  },
+  {
     name: "acid opens epoxide to vicinal diol",
     run() {
       const [candidate] = productsFor("C1CO1", acidHydration);
