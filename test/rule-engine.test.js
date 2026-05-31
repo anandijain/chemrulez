@@ -462,6 +462,12 @@ const tests = [
           smiles: "CC(Br)CBr",
           structureKey: "CC(Br)CBr",
           pubchemUrl: "https://pubchem.ncbi.nlm.nih.gov/#query=CC(Br)CBr",
+          annotations: {
+            stereochemistry: "consumed",
+            selectivity: "single",
+            mechanism: "anti halogenation",
+            warnings: ["Anti addition stereochemistry is not yet encoded in the product."],
+          },
         },
       ], {
         commitSha: "abcdef1234567890",
@@ -472,7 +478,21 @@ const tests = [
       assert.match(text, /commit: abcdef1234567890/);
       assert.match(text, /1\. Imported Propene/);
       assert.match(text, /2\. Br2 -> Vicinal dibromide/);
+      assert.match(text, /annotations: stereo=consumed, selectivity=single, mechanism=anti halogenation/);
       assert.match(text, /"smiles": "CC\(Br\)CBr"/);
+      assert.match(text, /"annotations":/);
+    },
+  },
+  {
+    name: "reaction candidates carry structured annotations",
+    run() {
+      const [lindlar] = productsFor("CC#CC", Lindlar);
+      assert.equal(lindlar.annotations.stereochemistry, "cis alkene formed");
+      assert.equal(lindlar.annotations.selectivity, "single");
+
+      const [epoxide] = productsFor("C/C=C\\CCc1ccccc1", mcpba);
+      assert.equal(epoxide.annotations.stereochemistry, "consumed");
+      assert.match(epoxide.annotations.warnings[0], /epoxide relative stereochemistry/);
     },
   },
   {

@@ -105,6 +105,17 @@ async function main() {
     console.log(`   bucket: ${candidate.bucket}`);
     console.log(`   confidence: ${candidate.confidence}`);
     console.log(`   product: ${candidate.productSmiles}`);
+    if (candidate.annotations) {
+      const annotations = [
+        candidate.annotations.stereochemistry ? `stereo=${candidate.annotations.stereochemistry}` : null,
+        candidate.annotations.selectivity ? `selectivity=${candidate.annotations.selectivity}` : null,
+        candidate.annotations.mechanism ? `mechanism=${candidate.annotations.mechanism}` : null,
+      ].filter(Boolean).join(", ");
+      if (annotations) console.log(`   annotations: ${annotations}`);
+      for (const warning of candidate.annotations.warnings || []) {
+        console.log(`   warning: ${warning}`);
+      }
+    }
     for (const line of candidate.explanation) {
       console.log(`   - ${line}`);
     }

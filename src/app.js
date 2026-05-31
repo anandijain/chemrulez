@@ -523,11 +523,13 @@ function clearPuzzle() {
   renderPuzzle();
 }
 
-function selectMolecule(molecule, pathLabel) {
+function selectMolecule(molecule, pathLabel, pathMeta = {}) {
   state.active = withChemMetadata(molecule);
   state.redoStack = [];
   state.path.push({
     label: pathLabel,
+    ruleId: pathMeta.ruleId || null,
+    annotations: pathMeta.annotations || null,
     molecule: moleculeSnapshot(state.active),
     smiles: state.active.canonicalSmiles,
     structureKey: state.active.structureKey,
@@ -846,6 +848,8 @@ function serializePathForSharing(path = state.path, options = {}) {
   const steps = path.map((step, index) => ({
     index: index + 1,
     label: step.label,
+    ruleId: step.ruleId || null,
+    annotations: step.annotations || null,
     smiles: step.smiles,
     structureKey: step.structureKey || step.smiles,
     pubchemUrl: step.pubchemUrl || pubChemUrlForSmiles(step.structureKey || step.smiles),
@@ -861,7 +865,10 @@ function serializePathForSharing(path = state.path, options = {}) {
       const graphKey = step.structureKey && step.structureKey !== step.smiles
         ? `\n   graph: ${step.structureKey}`
         : "";
-      return `${step.index}. ${step.label}\n   smiles: ${step.smiles}${graphKey}\n   pubchem: ${step.pubchemUrl}`;
+      const annotations = step.annotations
+        ? `\n   annotations: ${formatAnnotationsForSharing(step.annotations)}`
+        : "";
+      return `${step.index}. ${step.label}\n   smiles: ${step.smiles}${graphKey}${annotations}\n   pubchem: ${step.pubchemUrl}`;
     })
     .join("\n");
   const payload = {
@@ -888,6 +895,16 @@ function serializePathForSharing(path = state.path, options = {}) {
     JSON.stringify(payload, null, 2),
     "```",
   ].filter((line) => line !== null).join("\n");
+}
+
+function formatAnnotationsForSharing(annotations) {
+  const normalized = normalizeReactionAnnotations(annotations);
+  return [
+    normalized.stereochemistry ? `stereo=${normalized.stereochemistry}` : null,
+    normalized.selectivity ? `selectivity=${normalized.selectivity}` : null,
+    normalized.mechanism ? `mechanism=${normalized.mechanism}` : null,
+    normalized.warnings.length ? `warnings=${normalized.warnings.join("; ")}` : null,
+  ].filter(Boolean).join(", ");
 }
 
 function deployedCommitSha() {
@@ -1138,15 +1155,15 @@ function findReactionCandidates(molecule, resolution) {
     if (alcoholActivationCandidates.length) return alcoholActivationCandidates;
   }
 
-  if (grignard && (hasCarbonyl(molecule.canonicalSmiles) || isCarbonDioxide(molecule.canonicalSmiles))) {
+  if (grignard && (hasCarbonyl(substrateSmiles) || isCarbonDioxide(substrateSmiles))) {
     return grignardReactionCandidates(molecule, grignard);
   }
 
-  if (baseStrength && hasVicinalDihalide(molecule.canonicalSmiles)) {
+  if (baseStrength && hasVicinalDihalide(substrateSmiles)) {
     return vicinalDihalideDehydrohalogenationCandidates(molecule, baseStrength);
   }
 
-  if (baseStrength && hasVinylHalide(molecule.canonicalSmiles)) {
+  if (baseStrength && hasVinylHalide(substrateSmiles)) {
     return vinylHalideDehydrohalogenationCandidates(molecule, baseStrength);
   }
 
@@ -1158,7 +1175,7 @@ function findReactionCandidates(molecule, resolution) {
     return eliminationCandidates(molecule, substrateAlkylHalide, reagentIds);
   }
 
-  if (hasEpoxide(molecule.canonicalSmiles)) {
+  if (hasEpoxide(substrateSmiles)) {
     const epoxideCandidates = epoxideReactionCandidates(molecule, reagentIds);
     if (epoxideCandidates.length) return epoxideCandidates;
   }
@@ -1173,11 +1190,12 @@ function findReactionCandidates(molecule, resolution) {
     if (alkeneCandidates.length) return alkeneCandidates;
   }
 
-  if (sodiumAmide && alkylHalide && isLikelyTerminalAlkyne(molecule.canonicalSmiles)) {
+  if (sodiumAmide && alkylHalide && isLikelyTerminalAlkyne(substrateSmiles)) {
     const acetylide = {
       ...molecule,
       displayName: `${molecule.displayName} acetylide`,
-      canonicalSmiles: deprotonateTerminalAlkyne(molecule.canonicalSmiles),
+      canonicalSmiles: deprotonateTerminalAlkyne(substrateSmiles),
+      structureKey: deprotonateTerminalAlkyne(substrateSmiles),
     };
     return acetylideAlkylationCandidates(acetylide, alkylHalide).map((candidate) => ({
       ...candidate,
@@ -1190,41 +1208,51 @@ function findReactionCandidates(molecule, resolution) {
     }));
   }
 
-  if (resolution.reagent.id === "sodium_amide" && isLikelyTerminalAlkyne(molecule.canonicalSmiles)) {
+  if (resolution.reagent.id === "sodium_amide" && isLikelyTerminalAlkyne(substrateSmiles)) {
     return [
-      {
+      candidate({
         id: "terminal_alkyne_acetylide",
         label: "Acetylide anion",
         productName: `${molecule.displayName} acetylide`,
-        productSmiles: deprotonateTerminalAlkyne(molecule.canonicalSmiles),
+        productSmiles: deprotonateTerminalAlkyne(substrateSmiles),
         bucket: "high",
         confidence: 0.86,
+        annotations: {
+          stereochemistry: "unchanged",
+          selectivity: "single",
+          mechanism: "acid-base",
+        },
         explanation: [
           "Sodium amide is a strong enough base to deprotonate a terminal alkyne.",
           "The terminal alkyne proton is acidic enough for this first-year organic chemistry rule.",
           "This creates an acetylide anion that can be carried into the next step.",
         ],
-      },
+      }),
     ];
   }
 
-  if (isAcetylide(molecule.canonicalSmiles) && alkylHalide) {
+  if (isAcetylide(substrateSmiles) && alkylHalide) {
     return acetylideAlkylationCandidates(molecule, alkylHalide);
   }
 
   return [
-    {
+    candidate({
       id: "no_match",
       label: "No product rule yet",
       productName: molecule.displayName,
-      productSmiles: molecule.canonicalSmiles,
+      productSmiles: substrateSmiles,
       bucket: "none",
       confidence: 0,
+      annotations: {
+        stereochemistry: "not-modeled",
+        selectivity: "none",
+        warnings: ["No implemented product rule for this substrate/reagent combination."],
+      },
       explanation: [
         "The reagent resolved, but this substrate/reagent transformation is not implemented yet.",
         "Add a rule for this combination as the reaction library grows.",
       ],
-    },
+    }),
   ];
 }
 
@@ -1239,6 +1267,11 @@ function alkyneReactionCandidates(molecule, reagentIds) {
         productSmiles: fullyHydrogenate(smiles),
         bucket: "high",
         confidence: 0.86,
+        annotations: {
+          stereochemistry: "consumed",
+          selectivity: "single",
+          mechanism: "reduction",
+        },
         explanation: [
           "Excess catalytic hydrogenation reduces an alkyne all the way to an alkane.",
           "A normal Pd/C, Pt, or Ni catalyst does not usually stop cleanly at the alkene.",
@@ -1256,6 +1289,11 @@ function alkyneReactionCandidates(molecule, reagentIds) {
         productSmiles: reduceTripleToDoubleStereo(smiles, "cis"),
         bucket: "high",
         confidence: 0.84,
+        annotations: {
+          stereochemistry: "cis alkene formed",
+          selectivity: "single",
+          mechanism: "syn partial reduction",
+        },
         explanation: [
           "Lindlar catalyst partially reduces an alkyne to an alkene.",
           "Hydrogen adds syn, so an internal alkyne gives the cis alkene.",
@@ -1274,6 +1312,11 @@ function alkyneReactionCandidates(molecule, reagentIds) {
         productSmiles: reduceTripleToDoubleStereo(smiles, "trans"),
         bucket: "high",
         confidence: 0.82,
+        annotations: {
+          stereochemistry: "trans alkene formed",
+          selectivity: "single",
+          mechanism: "anti partial reduction",
+        },
         explanation: [
           "Dissolving metal reduction reduces an alkyne to an alkene.",
           "Hydrogen adds anti, so an internal alkyne gives the trans alkene.",
@@ -1292,6 +1335,11 @@ function alkyneReactionCandidates(molecule, reagentIds) {
         productSmiles: hydrateAlkyneMarkovnikov(smiles),
         bucket: "high",
         confidence: 0.72,
+        annotations: {
+          stereochemistry: "consumed",
+          selectivity: "regioselective",
+          mechanism: "hydration-tautomerization",
+        },
         explanation: [
           "HgSO4/H2SO4/H2O hydrates alkynes under Markovnikov control.",
           "The enol tautomerizes to the ketone.",
@@ -1310,6 +1358,12 @@ function alkyneReactionCandidates(molecule, reagentIds) {
         productSmiles: hydrateAlkyneAntiMarkovnikov(smiles),
         bucket: "moderate",
         confidence: 0.68,
+        annotations: {
+          stereochemistry: "consumed",
+          selectivity: "regioselective",
+          mechanism: "hydroboration-oxidation",
+          warnings: ["Unsymmetrical internal alkynes can give mixtures unless the substrate is biased."],
+        },
         explanation: [
           "Bulky hydroboration-oxidation hydrates terminal alkynes anti-Markovnikov.",
           "The enol tautomerizes to an aldehyde for terminal alkynes.",
@@ -1334,6 +1388,12 @@ function alkeneReactionCandidates(molecule, reagentIds) {
         productSmiles: fullyHydrogenate(smiles),
         bucket: "high",
         confidence: 0.88,
+        annotations: {
+          stereochemistry: "consumed",
+          selectivity: "single",
+          mechanism: "hydrogenation",
+          warnings: ["New stereocenters from syn addition are not yet encoded."],
+        },
         explanation: [
           "Catalytic hydrogenation reduces an alkene to an alkane.",
           "Hydrogen adds syn on the catalyst surface, but this prototype is not yet tracking stereocenters.",
@@ -1351,6 +1411,12 @@ function alkeneReactionCandidates(molecule, reagentIds) {
         productSmiles: addAcrossFirstAlkene(smiles, "Br", "H", "anti"),
         bucket: "high",
         confidence: 0.76,
+        annotations: {
+          stereochemistry: "consumed",
+          selectivity: "regioselective",
+          mechanism: "radical addition",
+          warnings: ["New stereocenters or racemic products are not yet encoded."],
+        },
         explanation: [
           "HBr with peroxides follows a radical pathway.",
           "Bromine adds to the less substituted alkene carbon overall.",
@@ -1377,6 +1443,12 @@ function alkeneReactionCandidates(molecule, reagentIds) {
         productSmiles: addAcrossFirstAlkene(smiles, "OH", "H", "markovnikov"),
         bucket: "high",
         confidence: 0.8,
+        annotations: {
+          stereochemistry: "consumed",
+          selectivity: "regioselective",
+          mechanism: "oxymercuration-demercuration",
+          warnings: ["Relative stereochemistry of addition is not yet encoded."],
+        },
         explanation: [
           "Oxymercuration-demercuration hydrates alkenes with Markovnikov regiochemistry.",
           "It avoids free carbocations, so rearrangement is not expected.",
@@ -1394,6 +1466,12 @@ function alkeneReactionCandidates(molecule, reagentIds) {
         productSmiles: addAcrossFirstAlkene(smiles, "OH", "H", "anti"),
         bucket: "high",
         confidence: 0.78,
+        annotations: {
+          stereochemistry: "consumed",
+          selectivity: "regioselective",
+          mechanism: "hydroboration-oxidation",
+          warnings: ["Syn addition stereochemistry is not yet encoded in the product."],
+        },
         explanation: [
           "Hydroboration-oxidation gives anti-Markovnikov alcohols.",
           "The addition is syn, but this prototype is not yet tracking stereocenters.",
@@ -1411,6 +1489,12 @@ function alkeneReactionCandidates(molecule, reagentIds) {
         productSmiles: addAcrossFirstAlkene(smiles, "Br", "Br", "both"),
         bucket: "high",
         confidence: 0.8,
+        annotations: {
+          stereochemistry: "consumed",
+          selectivity: "single",
+          mechanism: "anti halogenation",
+          warnings: ["Anti addition stereochemistry is not yet encoded in the product."],
+        },
         explanation: [
           "Bromine adds across alkenes to form vicinal dibromides.",
           "The mechanism is anti addition through a bromonium ion; stereochemistry is not yet drawn explicitly.",
@@ -1428,6 +1512,11 @@ function alkeneReactionCandidates(molecule, reagentIds) {
         productSmiles: ozonolyzeFirstAlkene(smiles),
         bucket: "high",
         confidence: 0.74,
+        annotations: {
+          stereochemistry: "consumed",
+          selectivity: "cleavage",
+          mechanism: "oxidative cleavage",
+        },
         explanation: [
           "Ozonolysis cleaves the alkene and converts each alkene carbon into a carbonyl.",
           "Reductive workup such as DMS, Me2S, or Zn/H2O preserves aldehydes instead of oxidizing them to acids.",
@@ -1447,6 +1536,12 @@ function alkeneReactionCandidates(molecule, reagentIds) {
         productSmiles: productSmiles || smiles,
         bucket: productSmiles ? "high" : "moderate",
         confidence: productSmiles ? 0.78 : 0.52,
+        annotations: {
+          stereochemistry: "consumed",
+          selectivity: productSmiles ? "single" : "not-modeled",
+          mechanism: "concerted epoxidation",
+          warnings: ["Alkene geometry is consumed; epoxide relative stereochemistry is not yet encoded."],
+        },
         explanation: [
           "mCPBA epoxidizes alkenes in one concerted step.",
           productSmiles
@@ -1467,6 +1562,12 @@ function alkeneReactionCandidates(molecule, reagentIds) {
         productSmiles: addAcrossFirstAlkene(smiles, "OH", "OH", "both"),
         bucket: "high",
         confidence: 0.72,
+        annotations: {
+          stereochemistry: "consumed",
+          selectivity: "single",
+          mechanism: "syn dihydroxylation",
+          warnings: ["Syn diol relative stereochemistry is not yet encoded."],
+        },
         explanation: [
           "OsO4 performs syn dihydroxylation of alkenes.",
           "Cold dilute KMnO4 is treated similarly for first-year synthesis planning.",
@@ -1484,7 +1585,7 @@ function reactionSmilesForMolecule(molecule) {
 }
 
 function epoxideReactionCandidates(molecule, reagentIds) {
-  const smiles = molecule.canonicalSmiles;
+  const smiles = reactionSmilesForMolecule(molecule);
 
   if (reagentIds.has("acid_hydration")) {
     return [
@@ -1495,6 +1596,12 @@ function epoxideReactionCandidates(molecule, reagentIds) {
         productSmiles: openFirstEpoxide(smiles, "O", "acid"),
         bucket: "high",
         confidence: 0.76,
+        annotations: {
+          stereochemistry: "consumed",
+          selectivity: "regioselective",
+          mechanism: "acidic epoxide opening",
+          warnings: ["Anti/trans epoxide-opening stereochemistry is not yet encoded."],
+        },
         explanation: [
           "Aqueous acid activates the epoxide toward ring opening.",
           "Water opens the strained three-membered ring and workup gives a vicinal diol.",
@@ -1513,6 +1620,12 @@ function epoxideReactionCandidates(molecule, reagentIds) {
         productSmiles: openFirstEpoxide(smiles, "Br", "acid"),
         bucket: "high",
         confidence: 0.72,
+        annotations: {
+          stereochemistry: "consumed",
+          selectivity: "regioselective",
+          mechanism: "acidic epoxide opening",
+          warnings: ["Anti/trans epoxide-opening stereochemistry is not yet encoded."],
+        },
         explanation: [
           "HX opens epoxides under acidic conditions to give halohydrins.",
           "For unsymmetrical epoxides, the acid-promoted opening is biased toward attack at the more substituted carbon.",
@@ -1531,6 +1644,12 @@ function epoxideReactionCandidates(molecule, reagentIds) {
         productSmiles: openFirstEpoxide(smiles, "O", "basic"),
         bucket: "high",
         confidence: 0.74,
+        annotations: {
+          stereochemistry: "consumed",
+          selectivity: "regioselective",
+          mechanism: "basic epoxide opening",
+          warnings: ["SN2-like anti opening stereochemistry is not yet encoded."],
+        },
         explanation: [
           "Strong nucleophiles open epoxides by SN2-like attack.",
           "For unsymmetrical epoxides under basic conditions, attack is favored at the less substituted carbon.",
@@ -1547,7 +1666,8 @@ function carbocationAdditionCandidates(molecule, group, reactionName) {
   const regioisomers = tiedAlkeneAdditionCandidates(molecule, group, reactionName);
   if (regioisomers.length > 1) return regioisomers;
 
-  const normalProduct = addAcrossFirstAlkene(molecule.canonicalSmiles, group, "H", "markovnikov");
+  const smiles = reactionSmilesForMolecule(molecule);
+  const normalProduct = addAcrossFirstAlkene(smiles, group, "H", "markovnikov");
   const normalCandidate = candidate({
     id: `alkene_${reactionName.replaceAll(" ", "_")}_normal`,
     label: `Unrearranged Markovnikov ${group} addition`,
@@ -1555,13 +1675,19 @@ function carbocationAdditionCandidates(molecule, group, reactionName) {
     productSmiles: normalProduct,
     bucket: "mixture",
     confidence: 0.5,
+    annotations: {
+      stereochemistry: "racemic or mixture",
+      selectivity: "mixture",
+      mechanism: "carbocation addition",
+      warnings: ["Free-carbocation additions can rearrange and can produce stereochemical mixtures."],
+    },
     explanation: [
       `${reactionName} proceeds through a carbocation when a free carbocation is involved.`,
       "This is the unrearranged Markovnikov product before any hydride or alkyl shift.",
     ],
   });
 
-  const rearrangement = rearrangedCarbocationProduct(molecule.canonicalSmiles, group);
+  const rearrangement = rearrangedCarbocationProduct(smiles, group);
   if (rearrangement && rearrangement.productSmiles !== normalProduct) {
     return [
       candidate({
@@ -1571,6 +1697,12 @@ function carbocationAdditionCandidates(molecule, group, reactionName) {
         productSmiles: rearrangement.productSmiles,
         bucket: "high",
         confidence: rearrangement.confidence,
+        annotations: {
+          stereochemistry: "racemic or mixture",
+          selectivity: "major",
+          mechanism: "carbocation rearrangement",
+          warnings: ["Free-carbocation capture stereochemistry is not yet encoded."],
+        },
         explanation: [
           `${rearrangement.shiftLabel} forms a more substituted carbocation before capture.`,
           rearrangement.reason,
@@ -1595,7 +1727,7 @@ function carbocationAdditionCandidates(molecule, group, reactionName) {
 function tiedAlkeneAdditionCandidates(molecule, group, reactionName) {
   let parsed;
   try {
-    parsed = chem.fromSmiles(molecule.canonicalSmiles);
+    parsed = chem.fromSmiles(reactionSmilesForMolecule(molecule));
   } catch (error) {
     return [];
   }
@@ -1620,6 +1752,12 @@ function tiedAlkeneAdditionCandidates(molecule, group, reactionName) {
     productSmiles,
     bucket: "mixture",
     confidence: 0.48,
+    annotations: {
+      stereochemistry: "racemic or mixture",
+      selectivity: "mixture",
+      mechanism: "carbocation addition",
+      warnings: ["The simplified rule model cannot choose one regioisomer as uniquely major here."],
+    },
     explanation: [
       `${reactionName} can add across this alkene in more than one constitutional orientation in the current rule model.`,
       "The alkene carbons have the same first-pass substitution score, so the app is showing regioisomeric products instead of choosing one as uniquely major.",
@@ -1674,7 +1812,7 @@ function classifyAlkylHalide(molecule, input) {
 function classifyAlkylHalideFromGraph(molecule, input) {
   let parsed;
   try {
-    parsed = chem.fromSmiles(molecule.canonicalSmiles);
+    parsed = chem.fromSmiles(reactionSmilesForMolecule(molecule));
   } catch (error) {
     return null;
   }
@@ -1793,11 +1931,12 @@ function classifySn2QualityFromGraph(graph, carbonIndex, title, alkylSmiles) {
 }
 
 function classifyGrignard(molecule, input) {
-  if (!/\[Mg\+2\]|\[Mg\]|\bMg\b/i.test(molecule.canonicalSmiles) && !/magnesium|mgbr|mgcl|mgi/i.test(input)) {
+  const smiles = reactionSmilesForMolecule(molecule);
+  if (!/\[Mg\+2\]|\[Mg\]|\bMg\b/i.test(smiles) && !/magnesium|mgbr|mgcl|mgi/i.test(input)) {
     return null;
   }
 
-  const organoSmiles = grignardOrganoFragment(molecule.canonicalSmiles, input);
+  const organoSmiles = grignardOrganoFragment(smiles, input);
   if (!organoSmiles) return null;
 
   return {
@@ -1810,7 +1949,23 @@ function classifyGrignard(molecule, input) {
 }
 
 function candidate(options) {
-  return options;
+  return normalizeCandidate(options);
+}
+
+function normalizeCandidate(options) {
+  return {
+    ...options,
+    annotations: normalizeReactionAnnotations(options.annotations),
+  };
+}
+
+function normalizeReactionAnnotations(annotations = {}) {
+  return {
+    stereochemistry: annotations.stereochemistry || "not annotated",
+    selectivity: annotations.selectivity || "not annotated",
+    mechanism: annotations.mechanism || null,
+    warnings: annotations.warnings || [],
+  };
 }
 
 function initRDKit() {
@@ -2578,6 +2733,7 @@ function isCarbonDioxide(smiles) {
 }
 
 function grignardReactionCandidates(molecule, reagent) {
+  const smiles = reactionSmilesForMolecule(molecule);
   const organoSmiles = reagent.organoSmiles;
   if (!organoSmiles) {
     return [
@@ -2596,7 +2752,7 @@ function grignardReactionCandidates(molecule, reagent) {
     ];
   }
 
-  if (isCarbonDioxide(molecule.canonicalSmiles)) {
+  if (isCarbonDioxide(smiles)) {
     return [
       candidate({
         id: "grignard_carboxylation",
@@ -2618,7 +2774,7 @@ function grignardReactionCandidates(molecule, reagent) {
       id: "grignard_carbonyl_addition",
       label: "Alcohol after Grignard addition and acid workup",
       productName: `${molecule.displayName} Grignard alcohol`,
-      productSmiles: addGrignardToCarbonyl(molecule.canonicalSmiles, organoSmiles),
+      productSmiles: addGrignardToCarbonyl(smiles, organoSmiles),
       bucket: "high",
       confidence: 0.76,
       explanation: [
@@ -2631,14 +2787,15 @@ function grignardReactionCandidates(molecule, reagent) {
 }
 
 function grignardFormationCandidates(molecule, alkylHalide) {
-  const productSmiles = alkylHalideToGrignard(molecule.canonicalSmiles);
+  const smiles = reactionSmilesForMolecule(molecule);
+  const productSmiles = alkylHalideToGrignard(smiles);
   if (!productSmiles) {
     return [
       candidate({
         id: "grignard_formation_no_product",
         label: "No Grignard formation product",
         productName: molecule.displayName,
-        productSmiles: molecule.canonicalSmiles,
+        productSmiles: smiles,
         bucket: "none",
         confidence: 0.3,
         explanation: [
@@ -2682,7 +2839,7 @@ function alcoholActivationCandidatesForReagents(molecule, reagentIds) {
 }
 
 function alcoholSubstitutionCandidates(molecule, halogenToken, label, note) {
-  const productSmiles = replaceFirstAlcoholOxygen(molecule.canonicalSmiles, halogenToken);
+  const productSmiles = replaceFirstAlcoholOxygen(reactionSmilesForMolecule(molecule), halogenToken);
   if (!productSmiles) return noAlcoholCandidate(molecule);
   return [
     candidate({
@@ -2692,6 +2849,12 @@ function alcoholSubstitutionCandidates(molecule, halogenToken, label, note) {
       productSmiles,
       bucket: "high",
       confidence: 0.78,
+      annotations: {
+        stereochemistry: halogenToken === "Br" ? "inversion expected if stereocenter reacts" : "condition-dependent",
+        selectivity: "single",
+        mechanism: halogenToken === "Br" ? "alcohol activation/substitution" : "alcohol activation",
+        warnings: halogenToken === "Cl" ? ["SOCl2 stereochemical outcome depends on conditions and is not fully encoded."] : [],
+      },
       explanation: [
         note,
         "The graph rule finds a carbon-bound OH group and replaces the oxygen leaving group with halide.",
@@ -2701,7 +2864,7 @@ function alcoholSubstitutionCandidates(molecule, halogenToken, label, note) {
 }
 
 function alcoholTosylationCandidates(molecule) {
-  const productSmiles = tosylateFirstAlcohol(molecule.canonicalSmiles);
+  const productSmiles = tosylateFirstAlcohol(reactionSmilesForMolecule(molecule));
   if (!productSmiles) return noAlcoholCandidate(molecule);
   return [
     candidate({
@@ -2711,6 +2874,11 @@ function alcoholTosylationCandidates(molecule) {
       productSmiles,
       bucket: "high",
       confidence: 0.76,
+      annotations: {
+        stereochemistry: "retained",
+        selectivity: "single",
+        mechanism: "alcohol activation",
+      },
       explanation: [
         "TsCl and pyridine convert alcohols into tosylates.",
         "The C-O bond is retained, so this preserves the carbon stereocenter in the simplified rule set.",
@@ -2721,14 +2889,20 @@ function alcoholTosylationCandidates(molecule) {
 }
 
 function noAlcoholCandidate(molecule) {
+  const smiles = reactionSmilesForMolecule(molecule);
   return [
     candidate({
       id: "no_alcohol_for_activation",
       label: "No alcohol found",
       productName: molecule.displayName,
-      productSmiles: molecule.canonicalSmiles,
+      productSmiles: smiles,
       bucket: "none",
       confidence: 0.4,
+      annotations: {
+        stereochemistry: "unchanged",
+        selectivity: "none",
+        warnings: ["No carbon-bound alcohol was found in the current graph."],
+      },
       explanation: [
         "These reagents need a carbon-bound OH group.",
         "The current graph did not find an alcohol oxygen on this substrate.",
@@ -2851,8 +3025,9 @@ function isEliminationCondition(reagentIds) {
 
 function vicinalDihalideDehydrohalogenationCandidates(molecule, baseStrength) {
   let parsed;
+  const smiles = reactionSmilesForMolecule(molecule);
   try {
-    parsed = chem.fromSmiles(molecule.canonicalSmiles);
+    parsed = chem.fromSmiles(smiles);
   } catch (error) {
     return [];
   }
@@ -2867,9 +3042,15 @@ function vicinalDihalideDehydrohalogenationCandidates(molecule, baseStrength) {
         id: "vicinal_dihalide_partial_dehydrohalogenation",
         label: "Vinyl halide after one elimination",
         productName: `${molecule.displayName} partial dehydrohalogenation product`,
-        productSmiles: vinylHalide || molecule.canonicalSmiles,
+        productSmiles: vinylHalide || smiles,
         bucket: "moderate",
         confidence: 0.68,
+        annotations: {
+          stereochemistry: "not-modeled",
+          selectivity: "partial",
+          mechanism: "dehydrohalogenation",
+          warnings: ["Vinyl-halide alkene geometry is not yet encoded."],
+        },
         explanation: [
           "Alkoxide-style strong bases can do ordinary E2 dehydrohalogenation on alkyl halides.",
           "The second elimination from a vinyl halide is substantially harder and usually needs a much stronger amide base.",
@@ -2885,9 +3066,14 @@ function vicinalDihalideDehydrohalogenationCandidates(molecule, baseStrength) {
       id: "vicinal_dihalide_double_dehydrohalogenation",
       label: "Double dehydrohalogenation to alkyne",
       productName: `${molecule.displayName} alkyne`,
-      productSmiles: alkyne || molecule.canonicalSmiles,
+      productSmiles: alkyne || smiles,
       bucket: "high",
       confidence: 0.82,
+      annotations: {
+        stereochemistry: "consumed",
+        selectivity: "single",
+        mechanism: "double dehydrohalogenation",
+      },
       explanation: [
         "A vicinal dihalide can undergo two base-promoted dehydrohalogenations.",
         "The first elimination gives a vinyl halide; the second requires a very strong base.",
@@ -2899,8 +3085,9 @@ function vicinalDihalideDehydrohalogenationCandidates(molecule, baseStrength) {
 
 function vinylHalideDehydrohalogenationCandidates(molecule, baseStrength) {
   let parsed;
+  const smiles = reactionSmilesForMolecule(molecule);
   try {
-    parsed = chem.fromSmiles(molecule.canonicalSmiles);
+    parsed = chem.fromSmiles(smiles);
   } catch (error) {
     return [];
   }
@@ -2914,9 +3101,14 @@ function vinylHalideDehydrohalogenationCandidates(molecule, baseStrength) {
         id: "vinyl_halide_needs_stronger_base",
         label: "Vinyl halide needs a stronger base",
         productName: molecule.displayName,
-        productSmiles: molecule.canonicalSmiles,
+        productSmiles: smiles,
         bucket: "none",
         confidence: 0.78,
+        annotations: {
+          stereochemistry: "unchanged",
+          selectivity: "none",
+          warnings: ["Base is not strong enough for vinyl halide dehydrohalogenation."],
+        },
         explanation: [
           "This substrate is already a vinyl halide.",
           "Alkoxide-style bases are not strong enough for the second dehydrohalogenation to an alkyne.",
@@ -2932,9 +3124,14 @@ function vinylHalideDehydrohalogenationCandidates(molecule, baseStrength) {
       id: "vinyl_halide_dehydrohalogenation",
       label: "Dehydrohalogenation to alkyne",
       productName: `${molecule.displayName} alkyne`,
-      productSmiles: alkyne || molecule.canonicalSmiles,
+      productSmiles: alkyne || smiles,
       bucket: "high",
       confidence: 0.8,
+      annotations: {
+        stereochemistry: "consumed",
+        selectivity: "single",
+        mechanism: "dehydrohalogenation",
+      },
       explanation: [
         "Very strong base can dehydrohalogenate vinyl halides.",
         "The carbon-halogen bond is removed and the alkene is promoted to an alkyne.",
@@ -3027,8 +3224,9 @@ function vinylHalideToAlkyne(graph, vinylHalide) {
 
 function eliminationCandidates(molecule, alkylHalide, reagentIds) {
   let parsed;
+  const smiles = reactionSmilesForMolecule(molecule);
   try {
-    parsed = chem.fromSmiles(molecule.canonicalSmiles);
+    parsed = chem.fromSmiles(smiles);
   } catch (error) {
     return [];
   }
@@ -3045,9 +3243,14 @@ function eliminationCandidates(molecule, alkylHalide, reagentIds) {
         id: "primary_halide_no_e1",
         label: "No useful E1 elimination",
         productName: molecule.displayName,
-        productSmiles: molecule.canonicalSmiles,
+        productSmiles: smiles,
         bucket: "none",
         confidence: 0.78,
+        annotations: {
+          stereochemistry: "unchanged",
+          selectivity: "none",
+          warnings: ["E1 is not useful for this substrate class."],
+        },
         explanation: [
           `${alkylHalide.canonical} is treated as a ${alkylHalide.kind}.`,
           "Simple E1 conditions require a reasonably stable carbocation, so methyl and ordinary primary alkyl halides are not useful E1 substrates.",
@@ -3064,9 +3267,14 @@ function eliminationCandidates(molecule, alkylHalide, reagentIds) {
         id: "no_beta_hydrogen",
         label: "No beta-hydrogen elimination",
         productName: molecule.displayName,
-        productSmiles: molecule.canonicalSmiles,
+        productSmiles: smiles,
         bucket: "none",
         confidence: 0.82,
+        annotations: {
+          stereochemistry: "unchanged",
+          selectivity: "none",
+          warnings: ["No beta hydrogen was found in the current graph."],
+        },
         explanation: [
           "The alkyl halide was found, but no adjacent beta carbon has an implicit hydrogen in the current graph.",
           "E1 and E2 eliminations need a beta hydrogen next to the leaving group carbon.",
@@ -3086,6 +3294,14 @@ function eliminationCandidates(molecule, alkylHalide, reagentIds) {
       productSmiles: item.productSmiles,
       bucket: favored ? "high" : "mixture",
       confidence: favored ? (hofmann ? 0.76 : 0.8) : 0.45,
+      annotations: {
+        stereochemistry: "not-modeled",
+        selectivity: favored ? "major" : "minor",
+        mechanism: e1 ? "E1 elimination" : "E2 elimination",
+        warnings: e1
+          ? ["Carbocation stereochemical outcomes are not yet encoded."]
+          : ["Anti-periplanar conformational filtering is not yet encoded."],
+      },
       explanation: eliminationExplanation(mode, alkylHalide, item, favored),
     };
   });
@@ -3162,34 +3378,46 @@ function eliminationExplanation(mode, alkylHalide, product, favored) {
 }
 
 function alkylHalideSubstitutionCandidates(molecule, alkylHalide, nucleophile) {
+  const smiles = reactionSmilesForMolecule(molecule);
   if (alkylHalide.sn2Quality === "blocked") {
     return [
-      {
+      candidate({
         id: `tertiary_halide_no_sn2_${nucleophile.id}`,
         label: "No useful SN2 substitution",
         productName: molecule.displayName,
-        productSmiles: molecule.canonicalSmiles,
+        productSmiles: smiles,
         bucket: "none",
         confidence: 0.84,
+        annotations: {
+          stereochemistry: "unchanged",
+          selectivity: "none",
+          warnings: ["Tertiary alkyl halides are blocked for SN2."],
+        },
         explanation: [
           `${alkylHalide.canonical} is treated as a ${alkylHalide.kind}.`,
           `${nucleophile.canonical} supplies ${nucleophile.nucleophile.label}, but tertiary alkyl halides are blocked for SN2.`,
           "E1/E2 pathways are more likely under suitable conditions.",
         ],
-      },
+      }),
     ];
   }
 
   const secondary = alkylHalide.sn2Quality === "poor";
-  const productSmiles = substituteAlkylHalide(molecule.canonicalSmiles, nucleophile.nucleophile.token);
+  const productSmiles = substituteAlkylHalide(smiles, nucleophile.nucleophile.token);
   return [
-    {
+    candidate({
       id: `alkyl_halide_sn2_${nucleophile.id}`,
       label: secondary ? "Competing SN2 substitution" : "SN2 substitution product",
       productName: `${molecule.displayName} substitution product`,
-      productSmiles: productSmiles || molecule.canonicalSmiles,
+      productSmiles: productSmiles || smiles,
       bucket: secondary ? "mixture" : "high",
       confidence: secondary ? 0.52 : 0.8,
+      annotations: {
+        stereochemistry: secondary ? "inversion with competing pathways" : "inversion expected if stereocenter reacts",
+        selectivity: secondary ? "mixture" : "single",
+        mechanism: "SN2 substitution",
+        warnings: secondary ? ["Secondary alkyl halides often have significant E2 competition."] : [],
+      },
       explanation: [
         `${alkylHalide.canonical} is treated as a ${alkylHalide.kind}.`,
         `${nucleophile.canonical} supplies ${nucleophile.nucleophile.label} as a nucleophile.`,
@@ -3197,7 +3425,7 @@ function alkylHalideSubstitutionCandidates(molecule, alkylHalide, nucleophile) {
           ? "Secondary alkyl halides can substitute, but E2 competition is significant."
           : "Primary, methyl, allylic, or benzylic halides are good SN2 substrates.",
       ],
-    },
+    }),
   ];
 }
 
@@ -3230,58 +3458,74 @@ function substituteAlkylHalide(smiles, nucleophileToken) {
 }
 
 function acetylideAlkylationCandidates(molecule, reagent) {
+  const smiles = reactionSmilesForMolecule(molecule);
   if (reagent.sn2Quality === "blocked") {
     return [
-      {
+      candidate({
         id: "tertiary_halide_no_sn2",
         label: "No useful SN2 alkylation",
         productName: molecule.displayName,
-        productSmiles: molecule.canonicalSmiles,
+        productSmiles: smiles,
         bucket: "none",
         confidence: 0.9,
+        annotations: {
+          stereochemistry: "unchanged",
+          selectivity: "none",
+          warnings: ["Tertiary alkyl halides cannot undergo acetylide SN2 alkylation."],
+        },
         explanation: [
           "Acetylides are strong bases and good nucleophiles, but tertiary alkyl halides cannot do SN2.",
           "Elimination is expected to dominate with tertiary substrates.",
           "Pick a methyl, primary, allylic, or benzylic halide for acetylide alkylation.",
         ],
-      },
+      }),
     ];
   }
 
   if (reagent.sn2Quality === "poor") {
     return [
-      {
+      candidate({
         id: "secondary_halide_mixture",
         label: "Competing SN2/E2 mixture",
         productName: molecule.displayName,
-        productSmiles: molecule.canonicalSmiles,
+        productSmiles: smiles,
         bucket: "mixture",
         confidence: 0.45,
+        annotations: {
+          stereochemistry: "mixture",
+          selectivity: "mixture",
+          warnings: ["Secondary alkyl halides are likely to give SN2/E2 competition with acetylides."],
+        },
         explanation: [
           "Secondary alkyl halides are a bad match for acetylide alkylation.",
           "Some substitution may happen, but E2 elimination is likely to compete strongly.",
           "For synthesis planning, use a less hindered alkyl halide if possible.",
         ],
-      },
+      }),
     ];
   }
 
-  const productSmiles = graphAlkylateAcetylide(molecule.canonicalSmiles, reagent.molecule?.canonicalSmiles)
-    || alkylateAcetylide(molecule.canonicalSmiles, reagent.alkylSmiles);
+  const productSmiles = graphAlkylateAcetylide(smiles, reagent.molecule?.structureKey || reagent.molecule?.canonicalSmiles)
+    || alkylateAcetylide(smiles, reagent.alkylSmiles);
   return [
-    {
+    candidate({
       id: `acetylide_alkylation_${reagent.id}`,
       label: "SN2 alkylation product",
       productName: `${molecule.displayName} alkylation product`,
       productSmiles,
       bucket: reagent.sn2Quality === "excellent" ? "high" : "moderate",
       confidence: reagent.sn2Quality === "excellent" ? 0.88 : 0.74,
+      annotations: {
+        stereochemistry: "inversion expected if stereocenter reacts",
+        selectivity: reagent.sn2Quality === "excellent" ? "single" : "major",
+        mechanism: "SN2 alkylation",
+      },
       explanation: [
         "The acetylide anion attacks the alkyl halide by SN2.",
         `${reagent.canonical} resolved to ${reagent.molecule?.canonicalSmiles || "an alkyl halide"} and is treated as a ${reagent.kind}.`,
         "This forms a new carbon-carbon bond and gives an internal alkyne.",
       ],
-    },
+    }),
   ];
 }
 
@@ -3397,7 +3641,8 @@ function findAcetylideAnionCarbon(graph) {
 
 function renderCandidates(candidates, resolution) {
   setResultsHtml(candidates
-    .map((candidate, index) => {
+    .map((rawCandidate, index) => {
+      const candidate = normalizeCandidate(rawCandidate);
       const imageUrl = structureImageUrlForSmiles(candidate.productSmiles);
       const disabled = candidate.bucket === "none" ? "disabled" : "";
       return `
@@ -3407,6 +3652,7 @@ function renderCandidates(candidates, resolution) {
             <span class="tag ${candidate.bucket}">${escapeHtml(candidate.bucket)}</span>
             <h3>${escapeHtml(candidate.label)}</h3>
             <p><code>${escapeHtml(candidate.productSmiles)}</code></p>
+            ${reactionAnnotationHtml(candidate.annotations)}
             <p><a href="${pubChemUrlForSmiles(candidate.productSmiles)}" target="_blank" rel="noreferrer">Open in PubChem</a></p>
             <ul>
               ${candidate.explanation.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
@@ -3420,7 +3666,7 @@ function renderCandidates(candidates, resolution) {
 
   els.results.querySelectorAll("[data-candidate]").forEach((button) => {
     button.addEventListener("click", () => {
-      const candidate = candidates[Number(button.dataset.candidate)];
+      const candidate = normalizeCandidate(candidates[Number(button.dataset.candidate)]);
       const product = {
         id: `derived:${candidate.id}:${Date.now()}`,
         cid: null,
@@ -3435,7 +3681,10 @@ function renderCandidates(candidates, resolution) {
         imageUrl: imageUrlForSmiles(candidate.productSmiles),
         pubchemUrl: pubChemUrlForSmiles(candidate.productSmiles),
       };
-      selectMolecule(product, `${formatReagentLabel(resolution)} -> ${candidate.label}`);
+      selectMolecule(product, `${formatReagentLabel(resolution)} -> ${candidate.label}`, {
+        ruleId: candidate.id,
+        annotations: candidate.annotations,
+      });
       clearResults();
       els.reagentInput.value = "";
       els.resolvedReagent.innerHTML = "";
@@ -3448,6 +3697,24 @@ function renderCandidates(candidates, resolution) {
   });
 
   queueMicrotask(() => firstEnabledCandidateButton()?.focus({ preventScroll: true }));
+}
+
+function reactionAnnotationHtml(annotations) {
+  const normalized = normalizeReactionAnnotations(annotations);
+  const pills = [
+    normalized.stereochemistry ? `stereo: ${normalized.stereochemistry}` : null,
+    normalized.selectivity ? `selectivity: ${normalized.selectivity}` : null,
+    normalized.mechanism,
+  ].filter(Boolean);
+  const warnings = normalized.warnings || [];
+  return `
+    <div class="reaction-annotations">
+      ${pills.map((pill) => `<span class="pill">${escapeHtml(pill)}</span>`).join("")}
+    </div>
+    ${warnings.length
+      ? `<ul class="annotation-warnings">${warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join("")}</ul>`
+      : ""}
+  `;
 }
 
 function setResultsHtml(html) {
