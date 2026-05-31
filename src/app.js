@@ -253,6 +253,7 @@ const els = {
   results: document.querySelector("#results"),
   pathList: document.querySelector("#pathList"),
   copyPathBtn: document.querySelector("#copyPathBtn"),
+  copyLinkBtn: document.querySelector("#copyLinkBtn"),
   resetBtn: document.querySelector("#resetBtn"),
   shortcutsBtn: document.querySelector("#shortcutsBtn"),
   shortcutsOverlay: document.querySelector("#shortcutsOverlay"),
@@ -334,6 +335,21 @@ els.copyPathBtn.addEventListener("click", async () => {
   } catch (error) {
     console.error(error);
     setImportStatus("Could not copy the path to the clipboard.", true);
+  }
+});
+
+els.copyLinkBtn.addEventListener("click", async () => {
+  if (!state.path.length) return;
+  const url = routeUrlForSharing();
+  try {
+    await copyTextToClipboard(url);
+    els.copyLinkBtn.textContent = "Copied";
+    setTimeout(() => {
+      els.copyLinkBtn.textContent = "Link";
+    }, 1200);
+  } catch (error) {
+    console.error(error);
+    setImportStatus("Could not copy the route link to the clipboard.", true);
   }
 });
 
@@ -823,6 +839,7 @@ function structuresMatch(left, right) {
 
 function renderPath() {
   els.copyPathBtn.disabled = state.path.length === 0;
+  els.copyLinkBtn.disabled = state.path.length === 0;
 
   if (!state.path.length) {
     els.pathList.innerHTML = `<li class="muted">No steps yet.</li>`;
@@ -912,6 +929,127 @@ function formatAnnotationsForSharing(annotations) {
     normalized.mechanism ? `mechanism=${normalized.mechanism}` : null,
     normalized.warnings.length ? `warnings=${normalized.warnings.join("; ")}` : null,
   ].filter(Boolean).join(", ");
+}
+
+function compactRoutePayload(path = state.path, options = {}) {
+  return {
+    app: "chemrulez",
+    v: 1,
+    mode: options.mode ?? state.mode,
+    commitSha: options.commitSha ?? deployedCommitSha() ?? null,
+    puzzle: (options.puzzle ?? state.puzzle)?.id || null,
+    steps: path.map((step) => ({
+      label: step.label,
+      ruleId: step.ruleId || null,
+      smiles: step.smiles,
+      structureKey: step.structureKey || step.smiles,
+      annotations: step.annotations || null,
+      molecule: step.molecule ? {
+        displayName: step.molecule.displayName,
+        canonicalSmiles: step.molecule.canonicalSmiles,
+        structureKey: step.molecule.structureKey || step.structureKey || step.smiles,
+        cid: step.molecule.cid || null,
+      } : null,
+    })),
+  };
+}
+
+function routeUrlForSharing(path = state.path) {
+  const url = new URL(window.location.href);
+  url.search = state.mode === "puzzles" ? "?mode=puzzles" : "";
+  url.hash = `route=${encodeRoutePayload(compactRoutePayload(path))}`;
+  return url.toString();
+}
+
+function encodeRoutePayload(payload) {
+  return bytesToBase64Url(new TextEncoder().encode(JSON.stringify(payload)));
+}
+
+function decodeRoutePayload(encoded) {
+  const bytes = base64UrlToBytes(encoded);
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+
+function bytesToBase64Url(bytes) {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary)
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replaceAll("=", "");
+}
+
+function base64UrlToBytes(value) {
+  const padded = value.replaceAll("-", "+").replaceAll("_", "/").padEnd(Math.ceil(value.length / 4) * 4, "=");
+  const binary = atob(padded);
+  return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+}
+
+function restoreRouteFromLocationHash() {
+  const match = window.location.hash.match(/^#route=(.+)$/);
+  if (!match) return false;
+
+  try {
+    const payload = decodeRoutePayload(match[1]);
+    restoreRoutePayload(payload);
+    setImportStatus(`Loaded shared route with ${state.path.length} step${state.path.length === 1 ? "" : "s"}.`);
+    return true;
+  } catch (error) {
+    console.error(error);
+    setImportStatus("Could not load the shared route link.", true);
+    return false;
+  }
+}
+
+function restoreRoutePayload(payload) {
+  if (payload?.app !== "chemrulez" || !Array.isArray(payload.steps)) {
+    throw new Error("Not a chemrulez route payload.");
+  }
+
+  state.mode = payload.mode === "puzzles" ? "puzzles" : "free";
+  state.puzzle = payload.puzzle ? synthesisPuzzles.find((puzzle) => puzzle.id === payload.puzzle) || null : null;
+  state.target = state.puzzle ? moleculeFromPuzzleRole(state.puzzle, "target") : null;
+  state.solved = false;
+  state.redoStack = [];
+  state.path = payload.steps.map((step, index) => routeStepFromPayload(step, index));
+
+  if (state.path.length) {
+    const lastStep = state.path[state.path.length - 1];
+    restoreActiveMoleculeFromStep(lastStep, state.path.length - 1);
+    els.reagentInput.disabled = false;
+    els.applyBtn.disabled = false;
+    updatePuzzleSolvedState();
+  } else {
+    state.active = null;
+    els.reagentInput.disabled = true;
+    els.applyBtn.disabled = true;
+  }
+}
+
+function routeStepFromPayload(step, index) {
+  const smiles = String(step.smiles || step.molecule?.canonicalSmiles || "");
+  if (!smiles) throw new Error(`Route step ${index + 1} has no SMILES.`);
+  const structureKey = String(step.structureKey || step.molecule?.structureKey || smiles);
+  const molecule = step.molecule ? {
+    ...step.molecule,
+    canonicalSmiles: step.molecule.canonicalSmiles || smiles,
+    structureKey: step.molecule.structureKey || structureKey,
+  } : {
+    displayName: step.label || `Step ${index + 1}`,
+    canonicalSmiles: smiles,
+    structureKey,
+    cid: null,
+  };
+  return {
+    label: String(step.label || `Step ${index + 1}`),
+    ruleId: step.ruleId || null,
+    annotations: step.annotations || null,
+    smiles,
+    structureKey,
+    molecule,
+    imageUrl: imageUrlForSmiles(smiles),
+    pubchemUrl: pubChemUrlForSmiles(structureKey || smiles),
+  };
 }
 
 function deployedCommitSha() {
@@ -4091,6 +4229,7 @@ function escapeHtml(value) {
 initCommitLink();
 initRDKit().then(refreshAfterRDKitReady);
 populatePuzzleSelect();
+restoreRouteFromLocationHash();
 renderMode();
 renderPuzzle();
 renderMolecule();

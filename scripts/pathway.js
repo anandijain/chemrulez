@@ -31,6 +31,8 @@ function loadRules() {
     window: {
       location: {
         search: "",
+        hash: "",
+        href: "https://example.test/chemrulez/",
       },
     },
     fetch: async () => {

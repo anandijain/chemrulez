@@ -30,6 +30,8 @@ const context = {
   window: {
     location: {
       search: "",
+      hash: "",
+      href: "https://example.test/chemrulez/",
     },
   },
   fetch: async () => {
@@ -47,6 +49,14 @@ const context = {
   },
   setTimeout,
   clearTimeout,
+  TextEncoder,
+  TextDecoder,
+  btoa(value) {
+    return Buffer.from(value, "binary").toString("base64");
+  },
+  atob(value) {
+    return Buffer.from(value, "base64").toString("binary");
+  },
 };
 
 vm.createContext(context);
@@ -496,6 +506,43 @@ const tests = [
       const [epoxide] = productsFor("C/C=C\\CCc1ccccc1", mcpba);
       assert.equal(epoxide.annotations.stereochemistry, "consumed");
       assert.match(epoxide.annotations.warnings[0], /epoxide relative stereochemistry/);
+    },
+  },
+  {
+    name: "route links round-trip compact pathway state",
+    run() {
+      const route = context.compactRoutePayload([
+        {
+          label: "Imported 1-Bromobutane",
+          ruleId: null,
+          annotations: null,
+          smiles: "CCCCBr",
+          structureKey: "CCCCBr",
+          molecule: {
+            displayName: "1-Bromobutane",
+            canonicalSmiles: "CCCCBr",
+            structureKey: "CCCCBr",
+            cid: null,
+          },
+        },
+        {
+          label: "Mg, Et2O -> Grignard reagent",
+          ruleId: "grignard_formation",
+          annotations: { stereochemistry: "unchanged", selectivity: "single", mechanism: "Grignard formation", warnings: [] },
+          smiles: "CCCC[Mg]Br",
+          structureKey: "CCCC[Mg]Br",
+          molecule: {
+            displayName: "1-Bromobutane Grignard reagent",
+            canonicalSmiles: "CCCC[Mg]Br",
+            structureKey: "CCCC[Mg]Br",
+            cid: null,
+          },
+        },
+      ], { mode: "free", commitSha: "abc123" });
+      const encoded = context.encodeRoutePayload(route);
+      const decoded = context.decodeRoutePayload(encoded);
+      assert.equal(decoded.steps[1].smiles, "CCCC[Mg]Br");
+      assert.equal(decoded.steps[1].annotations.mechanism, "Grignard formation");
     },
   },
   {
