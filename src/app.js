@@ -1,4 +1,5 @@
 import { synthesisPuzzles } from "./puzzles.js";
+import { reagentAliases } from "./reagents.js";
 
 const pubchemBase = "https://pubchem.ncbi.nlm.nih.gov/rest/pug";
 
@@ -207,239 +208,6 @@ const els = {
   copyPathBtn: document.querySelector("#copyPathBtn"),
   resetBtn: document.querySelector("#resetBtn"),
 };
-
-const reagentAliases = [
-  {
-    id: "sodium_amide",
-    canonical: "NaNH2",
-    kind: "strong amide base",
-    baseStrength: "very_strong",
-    aliases: [
-      "nanh2",
-      "na nh2",
-      "sodium amide",
-      "sodamide",
-      "sodiumamide",
-      "sodium amid",
-      "amide base",
-      "knh2",
-      "potassium amide",
-      "lda",
-      "lithium diisopropylamide",
-    ],
-  },
-  {
-    id: "h2_metal",
-    canonical: "H2, Pd/C",
-    kind: "catalytic hydrogenation",
-    aliases: [
-      "h2 pd",
-      "h2 pd/c",
-      "h2 palladium",
-      "h2 palladium carbon",
-      "h2 palladium on carbon",
-      "pd/c",
-      "palladium carbon",
-      "palladium on carbon",
-      "hydrogen palladium",
-      "hydrogen palladium on carbon",
-      "h2 pt",
-      "h2 ni",
-      "hydrogenation",
-    ],
-  },
-  {
-    id: "lindlar",
-    canonical: "H2, Lindlar",
-    kind: "syn partial alkyne hydrogenation",
-    aliases: ["lindlar", "h2 lindlar", "lindlar catalyst", "poisoned catalyst"],
-  },
-  {
-    id: "dissolving_metal",
-    canonical: "Na, NH3",
-    kind: "anti partial alkyne reduction",
-    aliases: [
-      "na nh3",
-      "na nh3 l",
-      "na nh3 liquid",
-      "na nh3(l)",
-      "nan h3",
-      "sodium ammonia",
-      "sodium liquid ammonia",
-      "na/nh3",
-      "li nh3",
-      "li nh3 l",
-      "li nh3(l)",
-      "lithium ammonia",
-      "lithium liquid ammonia",
-    ],
-  },
-  {
-    id: "alkyne_mercuration",
-    canonical: "HgSO4, H2SO4, H2O",
-    kind: "alkyne mercuric hydration",
-    aliases: ["hgso4", "h2so4 h2o hgso4", "mercuric hydration", "mercuration", "oxymercuration of alkyne"],
-  },
-  {
-    id: "alkyne_hydroboration",
-    canonical: "1. R2BH  2. H2O2, NaOH",
-    kind: "alkyne hydroboration-oxidation",
-    aliases: ["sia2bh", "9-bbn", "r2bh", "h2o2 naoh", "alkyne hydroboration", "hydroboration oxidation alkyne"],
-  },
-  {
-    id: "hbr",
-    canonical: "HBr",
-    kind: "hydrohalogenation",
-    aliases: ["hbr", "h-br", "hydrobromic acid", "hydrogen bromide"],
-  },
-  {
-    id: "hbr_peroxides",
-    canonical: "HBr, ROOR",
-    kind: "radical anti-Markovnikov hydrohalogenation",
-    aliases: ["hbr roor", "hbr peroxide", "hbr peroxides", "hbr hv", "radical hbr"],
-  },
-  {
-    id: "acid_hydration",
-    canonical: "H3O+",
-    kind: "acid-catalyzed alkene hydration",
-    aliases: ["h3o+", "h2so4 h2o", "h2o h2so4", "acid hydration", "aqueous acid"],
-  },
-  {
-    id: "hydroxide",
-    canonical: "NaOH, H2O",
-    kind: "hydroxide nucleophile",
-    baseStrength: "moderate",
-    nucleophile: { token: "O", label: "hydroxide" },
-    aliases: ["naoh", "oh-", "hydroxide", "aqueous hydroxide", "naoh h2o", "koh", "koh h2o"],
-  },
-  {
-    id: "cyanide",
-    canonical: "NaCN",
-    kind: "cyanide nucleophile",
-    nucleophile: { token: "CN", label: "cyanide" },
-    aliases: ["nacn", "kcn", "cyanide", "sodium cyanide", "potassium cyanide", "cn-"],
-  },
-  {
-    id: "e2_base",
-    canonical: "NaOEt, heat",
-    kind: "strong base E2 conditions",
-    baseStrength: "strong",
-    aliases: [
-      "naoet",
-      "naoet heat",
-      "eto-",
-      "ethoxide",
-      "sodium ethoxide",
-      "sodium ethoxide heat",
-      "koh etoh",
-      "koh ethanol",
-      "koh heat",
-      "naoh heat",
-      "alcoholic koh",
-      "strong base heat",
-      "e2",
-    ],
-  },
-  {
-    id: "bulky_e2_base",
-    canonical: "t-BuOK, heat",
-    kind: "bulky base E2 conditions",
-    baseStrength: "strong",
-    aliases: [
-      "tbuok",
-      "t-buok",
-      "tert butoxide",
-      "tert-butoxide",
-      "potassium tert-butoxide",
-      "kotbu",
-      "ko tbu",
-      "bulky base",
-      "hoffman",
-      "hofmann",
-    ],
-  },
-  {
-    id: "e1_heat",
-    canonical: "EtOH, heat",
-    kind: "weak nucleophile E1 conditions",
-    aliases: [
-      "etoh heat",
-      "ethanol heat",
-      "h2o heat",
-      "water heat",
-      "solvolysis heat",
-      "e1",
-    ],
-  },
-  {
-    id: "alkene_oxymercuration",
-    canonical: "1. Hg(OAc)2, H2O  2. NaBH4",
-    kind: "alkene oxymercuration-demercuration",
-    aliases: ["hg(oac)2", "hgoac2", "nab h4", "nabH4", "oxymercuration", "oxymercuration demercuration"],
-  },
-  {
-    id: "alkene_hydroboration",
-    canonical: "1. BH3  2. H2O2, NaOH",
-    kind: "alkene hydroboration-oxidation",
-    aliases: ["bh3", "bh3 thf", "h2o2 naoh alkene", "alkene hydroboration", "hydroboration oxidation"],
-  },
-  {
-    id: "br2",
-    canonical: "Br2",
-    kind: "halogenation",
-    aliases: ["br2", "bromine", "br2 ccl4"],
-  },
-  {
-    id: "mcpba",
-    canonical: "mCPBA",
-    kind: "epoxidation",
-    aliases: ["mcpba", "m-cpba", "peroxyacid", "peracid"],
-  },
-  {
-    id: "oso4",
-    canonical: "OsO4",
-    kind: "syn dihydroxylation",
-    aliases: ["oso4", "osmium tetroxide", "kmno4 cold", "cold kmno4"],
-  },
-  {
-    id: "ozonolysis_reductive",
-    canonical: "1. O3  2. DMS",
-    kind: "reductive ozonolysis",
-    aliases: ["o3", "o3 dms", "o3 me2s", "o3 zn", "o3 zn h2o", "ozone", "ozonolysis", "reductive ozonolysis"],
-  },
-  {
-    id: "grignard_workup",
-    canonical: "RMgX, H3O+",
-    kind: "Grignard addition",
-    aliases: [
-      "grignard",
-      "grignard reagent",
-      "mg ether h3o+",
-      "mg et2o h3o+",
-    ],
-  },
-  {
-    id: "local_grignard_methyl",
-    canonical: "CH3MgBr, H3O+",
-    kind: "Grignard addition",
-    organoSmiles: "C",
-    aliases: ["ch3mgbr", "memgbr", "methylmagnesium bromide", "methyl grignard"],
-  },
-  {
-    id: "local_grignard_ethyl",
-    canonical: "CH3CH2MgBr, H3O+",
-    kind: "Grignard addition",
-    organoSmiles: "CC",
-    aliases: ["ch3ch2mgbr", "c2h5mgbr", "etmgbr", "ethylmagnesium bromide", "ethyl grignard"],
-  },
-  {
-    id: "local_grignard_phenyl",
-    canonical: "PhMgBr, H3O+",
-    kind: "Grignard addition",
-    organoSmiles: "c1ccccc1",
-    aliases: ["phmgbr", "phenylmagnesium bromide", "phenyl grignard"],
-  },
-];
 
 els.importForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -1065,6 +833,22 @@ function resolveKnownReagent(input) {
   return best?.score > 0.72 ? best.reagent : null;
 }
 
+function reagentRoles(reagent) {
+  return new Set([
+    ...(reagent.roles || []),
+    ...(reagent.nucleophile ? ["nucleophile"] : []),
+    ...(reagent.baseStrength ? ["base"] : []),
+  ]);
+}
+
+function reagentHasRole(reagent, role) {
+  return reagentRoles(reagent).has(role);
+}
+
+function reagentFact(reagent, factName) {
+  return reagent[factName] ?? null;
+}
+
 function extractStructuralReagentText(input) {
   const parts = input
     .split(/\b(?:then|followed by|and then|plus|with)\b|[,;]/i)
@@ -1171,7 +955,7 @@ function findReactionCandidates(molecule, resolution) {
   const sodiumAmide = reagents.find((reagent) => reagent.id === "sodium_amide");
   const alkylHalide = reagents.find((reagent) => reagent.kind.includes("alkyl halide"));
   const grignard = reagents.find((reagent) => reagent.kind.includes("Grignard"));
-  const nucleophile = reagents.find((reagent) => reagent.nucleophile);
+  const nucleophile = reagents.find((reagent) => reagentHasRole(reagent, "nucleophile"));
   const reagentIds = new Set(reagents.map((reagent) => reagent.id));
   const baseStrength = baseStrengthForReagents(reagents);
   const substrateAlkylHalide = classifyAlkylHalide(molecule, molecule.displayName || molecule.canonicalSmiles);
@@ -2380,16 +2164,10 @@ function isAllylicFragment(smiles) {
 function baseStrengthForReagents(reagents) {
   const ranks = { moderate: 1, strong: 2, very_strong: 3 };
   return reagents
-    .map((reagent) => reagent.baseStrength || baseStrengthForReagentId(reagent.id))
+    .filter((reagent) => reagentHasRole(reagent, "base"))
+    .map((reagent) => reagentFact(reagent, "baseStrength"))
     .filter(Boolean)
     .sort((left, right) => ranks[right] - ranks[left])[0] || null;
-}
-
-function baseStrengthForReagentId(id) {
-  if (id === "sodium_amide") return "very_strong";
-  if (id === "e2_base" || id === "bulky_e2_base") return "strong";
-  if (id === "hydroxide") return "moderate";
-  return null;
 }
 
 function baseStrengthAtLeast(baseStrength, threshold) {

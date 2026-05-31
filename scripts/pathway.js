@@ -24,10 +24,17 @@ function makeElement() {
 function loadRules() {
   const context = {
     console,
+    URLSearchParams,
+    window: {
+      location: {
+        search: "",
+      },
+    },
     fetch: async () => {
       throw new Error("Pathway CLI uses local names or SMILES only for now");
     },
     document: {
+      body: makeElement(),
       querySelector() {
         return makeElement();
       },
@@ -41,8 +48,15 @@ function loadRules() {
 
   vm.createContext(context);
   vm.runInContext(
+    fs.readFileSync(path.join(__dirname, "../src/reagents.js"), "utf8")
+      .replace("export const reagentAliases =", "var reagentAliases ="),
+    context,
+    { filename: "src/reagents.js" },
+  );
+  vm.runInContext(
     fs.readFileSync(path.join(__dirname, "../src/app.js"), "utf8")
-      .replace('import { synthesisPuzzles } from "./puzzles.js";', "const synthesisPuzzles = [];"),
+      .replace('import { synthesisPuzzles } from "./puzzles.js";', "const synthesisPuzzles = [];")
+      .replace('import { reagentAliases } from "./reagents.js";', ""),
     context,
     { filename: "src/app.js" },
   );

@@ -53,8 +53,15 @@ vm.runInContext(
   { filename: "src/puzzles.js" },
 );
 vm.runInContext(
+  fs.readFileSync(path.join(__dirname, "../src/reagents.js"), "utf8")
+    .replace("export const reagentAliases =", "var reagentAliases ="),
+  context,
+  { filename: "src/reagents.js" },
+);
+vm.runInContext(
   fs.readFileSync(path.join(__dirname, "../src/app.js"), "utf8")
-    .replace('import { synthesisPuzzles } from "./puzzles.js";', ""),
+    .replace('import { synthesisPuzzles } from "./puzzles.js";', "")
+    .replace('import { reagentAliases } from "./reagents.js";', ""),
   context,
   { filename: "src/app.js" },
 );
@@ -93,6 +100,7 @@ function productsFor(smiles, ...reagents) {
 }
 
 const NaNH2 = reagent("sodium_amide", "NaNH2", "strong amide base");
+NaNH2.baseStrength = "very_strong";
 const H2 = reagent("h2_metal", "H2, Pd/C", "catalytic hydrogenation");
 const Lindlar = reagent("lindlar", "H2, Lindlar", "syn partial alkyne hydrogenation");
 const NaNH3 = reagent("dissolving_metal", "Na, NH3", "anti partial alkyne reduction");
@@ -106,7 +114,9 @@ hydroxide.nucleophile = { token: "O", label: "hydroxide" };
 const cyanide = reagent("cyanide", "NaCN", "cyanide nucleophile");
 cyanide.nucleophile = { token: "CN", label: "cyanide" };
 const ethoxideHeat = reagent("e2_base", "NaOEt, heat", "strong base E2 conditions");
+ethoxideHeat.baseStrength = "strong";
 const tertButoxide = reagent("bulky_e2_base", "t-BuOK, heat", "bulky base E2 conditions");
+tertButoxide.baseStrength = "strong";
 const solvolysisHeat = reagent("e1_heat", "EtOH, heat", "weak nucleophile E1 conditions");
 const oxymercuration = reagent("alkene_oxymercuration", "1. Hg(OAc)2, H2O  2. NaBH4", "alkene oxymercuration-demercuration");
 const hydroboration = reagent("alkene_hydroboration", "1. BH3  2. H2O2, NaOH", "alkene hydroboration-oxidation");
@@ -166,6 +176,8 @@ const tests = [
     name: "E2 with a normal strong base ranks the Zaitsev alkene major",
     run() {
       assert.equal(context.resolveKnownReagent("ethoxide").id, "e2_base");
+      assert.equal(context.reagentHasRole(context.resolveKnownReagent("ethoxide"), "base"), true);
+      assert.equal(context.baseStrengthForReagents([context.resolveKnownReagent("ethoxide")]), "strong");
       const candidates = productsFor("CC(Br)CC", ethoxideHeat);
       assert.equal(candidates[0].label, "Major E2 alkene");
       assert.equal(candidates[0].productSmiles, "CC=CC");
