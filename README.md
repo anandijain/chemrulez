@@ -39,6 +39,17 @@ parsing, canonical SMILES, descriptors, depictions, and SMARTS matching:
 http://localhost:5173/rdkit-spike.html
 ```
 
+Initial Node probe against `@rdkit/rdkit@2025.3.4-1.0.0`:
+
+- `RDKit_minimal.js`: about 128 KB uncompressed.
+- `RDKit_minimal.wasm`: about 6.9 MB uncompressed.
+- WASM init in Node: about 55 ms.
+- Parse/canonicalize small SMILES: about 0.08 ms per molecule.
+- Parse plus five SMARTS checks: about 0.09 ms per molecule.
+
+That suggests the main cost is initial network/download and WASM startup, not
+per-step chemistry operations.
+
 ## What works now
 
 - Import molecules by common name, SMILES, PubChem CID, or PubChem compound URL.

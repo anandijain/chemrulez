@@ -10,6 +10,8 @@ const els = {
   smarts: document.querySelector("#rdkitSmarts"),
   matchBtn: document.querySelector("#rdkitMatchBtn"),
   matchStatus: document.querySelector("#rdkitMatchStatus"),
+  benchmarkBtn: document.querySelector("#rdkitBenchmarkBtn"),
+  benchmarkOutput: document.querySelector("#rdkitBenchmarkOutput"),
 };
 
 let RDKit = null;
@@ -29,6 +31,7 @@ async function init() {
     setStatus(`Loaded RDKit.js ${version}`.trim());
     els.renderBtn.disabled = false;
     els.matchBtn.disabled = false;
+    els.benchmarkBtn.disabled = false;
     renderMolecule();
   } catch (error) {
     console.error(error);
@@ -44,6 +47,10 @@ els.form.addEventListener("submit", (event) => {
 els.smartsForm.addEventListener("submit", (event) => {
   event.preventDefault();
   renderSubstructureMatch();
+});
+
+els.benchmarkBtn.addEventListener("click", () => {
+  runBenchmarkProbe();
 });
 
 function renderMolecule() {
@@ -151,6 +158,68 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function runBenchmarkProbe() {
+  if (!RDKit) return;
+  const samples = [
+    "C=CC",
+    "CC(C)Br",
+    "CC(Br)CBr",
+    "C1CCCCC1",
+    "c1ccccc1",
+    "CC(C)(C)C(=O)O",
+    "CC#CCC",
+    "CC1OC1C",
+  ];
+  const smarts = ["C=C", "C#C", "[Br]", "c1ccccc1", "C1OC1"];
+  const parseCount = 1000;
+  const matchCount = 500;
+
+  const loadInfo = performance.getEntriesByName(
+    "https://unpkg.com/@rdkit/rdkit/dist/RDKit_minimal.js",
+  )[0];
+  const wasmInfo = performance
+    .getEntriesByType("resource")
+    .find((entry) => entry.name.includes("RDKit_minimal.wasm"));
+
+  const methodSample = currentMol
+    ? Object.getOwnPropertyNames(Object.getPrototypeOf(currentMol)).sort()
+    : [];
+
+  const parseStart = performance.now();
+  for (let i = 0; i < parseCount; i += 1) {
+    const mol = getMol(samples[i % samples.length]);
+    mol?.delete?.();
+  }
+  const parseMs = performance.now() - parseStart;
+
+  const queryMols = smarts.map((query) => getQueryMol(query));
+  const matchStart = performance.now();
+  for (let i = 0; i < matchCount; i += 1) {
+    const mol = getMol(samples[i % samples.length]);
+    for (const query of queryMols) {
+      if (query) mol?.get_substruct_match(query);
+    }
+    mol?.delete?.();
+  }
+  const matchMs = performance.now() - matchStart;
+  queryMols.forEach((query) => query?.delete?.());
+
+  const result = {
+    rdkitVersion: typeof RDKit.version === "function" ? RDKit.version() : null,
+    scriptTransferKb: loadInfo ? Math.round(loadInfo.transferSize / 1024) : null,
+    wasmTransferKb: wasmInfo ? Math.round(wasmInfo.transferSize / 1024) : null,
+    parseCount,
+    parseTotalMs: Math.round(parseMs),
+    parseAvgMs: Number((parseMs / parseCount).toFixed(4)),
+    matchCount,
+    matchTotalMs: Math.round(matchMs),
+    matchAvgMs: Number((matchMs / matchCount).toFixed(4)),
+    exposedMolMethods: methodSample,
+  };
+
+  els.benchmarkOutput.textContent = JSON.stringify(result, null, 2);
 }
 
 init();
