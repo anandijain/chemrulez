@@ -132,6 +132,8 @@ const magnesium = reagent("mg_ether", "Mg, Et2O", "Grignard formation");
 const PBr3 = reagent("pbr3", "PBr3", "alcohol to alkyl bromide");
 const SOCl2 = reagent("socl2", "SOCl2", "alcohol to alkyl chloride");
 const TsCl = reagent("tosyl_chloride", "TsCl, pyridine", "alcohol tosylation");
+const formaldehydeReagent = reagent("structural_formaldehyde", "Formaldehyde", "known structure");
+formaldehydeReagent.molecule = { displayName: "Formaldehyde", canonicalSmiles: "C=O" };
 
 const tests = [
   {
@@ -438,6 +440,22 @@ const tests = [
       assert.equal(candidate.label, "Grignard reagent");
       assert.equal(candidate.productSmiles, "CC[Mg]Br");
       assert.equal(context.grignardOrganoFragment(candidate.productSmiles, "ethyl magnesium bromide"), "CC");
+    },
+  },
+  {
+    name: "Grignard substrates add to carbonyl reagents",
+    run() {
+      const [candidate] = productsFor("CC[Mg]Br", formaldehydeReagent);
+      assert.equal(candidate.label, "Alcohol after Grignard addition and acid workup");
+      assert.equal(candidate.productSmiles, "C(O)(CC)");
+      assert.match(candidate.explanation[0], /current substrate is the Grignard reagent/);
+    },
+  },
+  {
+    name: "formaldehyde resolves locally as a structural co-reactant",
+    run() {
+      const formaldehyde = context.localMoleculeFromInput("formaldehyde");
+      assert.equal(formaldehyde.canonicalSmiles, "C=O");
     },
   },
   {

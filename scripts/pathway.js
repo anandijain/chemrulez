@@ -74,31 +74,35 @@ if (!moleculeInput || !reagentInput) {
   process.exit(1);
 }
 
-const rules = loadRules();
-const localMolecule = rules.localMoleculeFromInput(moleculeInput);
-const molecule = localMolecule || {
-  displayName: moleculeInput,
-  canonicalSmiles: moleculeInput,
-};
-
-const reagent = rules.resolveKnownReagent(reagentInput);
-if (!reagent) {
-  console.error(`Could not resolve reagent locally: ${reagentInput}`);
+main().catch((error) => {
+  console.error(error.message || error);
   process.exit(1);
-}
-
-const candidates = rules.findReactionCandidates(molecule, {
-  reagent,
-  reagents: [reagent],
 });
 
-console.log(`${molecule.displayName} (${molecule.canonicalSmiles}) + ${reagent.canonical}`);
-for (const [index, candidate] of candidates.entries()) {
-  console.log(`\n${index + 1}. ${candidate.label}`);
-  console.log(`   bucket: ${candidate.bucket}`);
-  console.log(`   confidence: ${candidate.confidence}`);
-  console.log(`   product: ${candidate.productSmiles}`);
-  for (const line of candidate.explanation) {
-    console.log(`   - ${line}`);
+async function main() {
+  const rules = loadRules();
+  const localMolecule = rules.localMoleculeFromInput(moleculeInput);
+  const molecule = localMolecule || {
+    displayName: moleculeInput,
+    canonicalSmiles: moleculeInput,
+  };
+
+  const resolution = await rules.resolveReagentInput(reagentInput);
+  if (!resolution?.reagent) {
+    console.error(`Could not resolve reagent locally: ${reagentInput}`);
+    process.exit(1);
+  }
+
+  const candidates = rules.findReactionCandidates(molecule, resolution);
+
+  console.log(`${molecule.displayName} (${molecule.canonicalSmiles}) + ${resolution.reagent.canonical}`);
+  for (const [index, candidate] of candidates.entries()) {
+    console.log(`\n${index + 1}. ${candidate.label}`);
+    console.log(`   bucket: ${candidate.bucket}`);
+    console.log(`   confidence: ${candidate.confidence}`);
+    console.log(`   product: ${candidate.productSmiles}`);
+    for (const line of candidate.explanation) {
+      console.log(`   - ${line}`);
+    }
   }
 }

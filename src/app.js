@@ -145,6 +145,20 @@ const localMolecules = [
     molecularWeight: "42.08",
   },
   {
+    keys: ["formaldehyde", "methanal"],
+    displayName: "Formaldehyde",
+    canonicalSmiles: "C=O",
+    formula: "CH2O",
+    molecularWeight: "30.03",
+  },
+  {
+    keys: ["acetaldehyde", "ethanal"],
+    displayName: "Acetaldehyde",
+    canonicalSmiles: "CC=O",
+    formula: "C2H4O",
+    molecularWeight: "44.05",
+  },
+  {
     keys: ["methyl2butene", "methylbutene", "2methyl2butene", "2methylbut2ene"],
     displayName: "2-Methyl-2-butene",
     canonicalSmiles: "CC=C(C)C",
@@ -887,6 +901,11 @@ function reagentFact(reagent, factName) {
   return reagent[factName] ?? null;
 }
 
+function reagentIsCarbonylPartner(reagent) {
+  const smiles = reagent?.molecule?.canonicalSmiles;
+  return Boolean(smiles && (hasCarbonyl(smiles) || isCarbonDioxide(smiles)));
+}
+
 function extractStructuralReagentText(input) {
   const parts = input
     .split(/\b(?:then|followed by|and then|plus|with)\b|[,;]/i)
@@ -993,13 +1012,26 @@ function findReactionCandidates(molecule, resolution) {
   const sodiumAmide = reagents.find((reagent) => reagent.id === "sodium_amide");
   const alkylHalide = reagents.find((reagent) => reagent.kind.includes("alkyl halide"));
   const grignard = reagents.find((reagent) => reagent.kind.includes("Grignard"));
+  const structuralCarbonyl = reagents.find((reagent) => reagentIsCarbonylPartner(reagent));
   const nucleophile = reagents.find((reagent) => reagentHasRole(reagent, "nucleophile"));
   const reagentIds = new Set(reagents.map((reagent) => reagent.id));
   const baseStrength = baseStrengthForReagents(reagents);
   const substrateAlkylHalide = classifyAlkylHalide(molecule, molecule.displayName || molecule.canonicalSmiles);
+  const substrateGrignard = classifyGrignard(molecule, molecule.displayName || molecule.canonicalSmiles);
 
   if (substrateAlkylHalide && reagentIds.has("mg_ether")) {
     return grignardFormationCandidates(molecule, substrateAlkylHalide);
+  }
+
+  if (substrateGrignard && structuralCarbonyl) {
+    return grignardReactionCandidates(structuralCarbonyl.molecule, substrateGrignard).map((candidate) => ({
+      ...candidate,
+      id: `substrate_grignard_${candidate.id}`,
+      explanation: [
+        "The current substrate is the Grignard reagent; the molecule entered as reagent is treated as the carbonyl co-reactant.",
+        ...candidate.explanation,
+      ],
+    }));
   }
 
   if (reagentIds.has("pbr3") || reagentIds.has("socl2") || reagentIds.has("tosyl_chloride")) {

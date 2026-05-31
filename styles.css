@@ -374,7 +374,7 @@ select:focus {
 .molecule-card {
   display: grid;
   gap: 18px;
-  grid-template-columns: minmax(260px, 420px) minmax(0, 1fr);
+  grid-template-columns: minmax(320px, 520px) minmax(0, 1fr);
 }
 
 .molecule-art {
@@ -384,14 +384,15 @@ select:focus {
   border-radius: 8px;
   display: flex;
   justify-content: center;
-  min-height: 280px;
+  min-height: 360px;
   padding: 12px;
 }
 
 .molecule-art img {
   height: auto;
-  max-height: 260px;
+  max-height: 340px;
   max-width: 100%;
+  width: 100%;
 }
 
 .molecule-meta {
