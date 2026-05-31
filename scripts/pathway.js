@@ -11,7 +11,10 @@ function makeElement() {
     innerHTML: "",
     textContent: "",
     value: "",
+    hidden: false,
+    tagName: "div",
     addEventListener() {},
+    focus() {},
     querySelector() {
       return makeElement();
     },
@@ -35,6 +38,7 @@ function loadRules() {
     },
     document: {
       body: makeElement(),
+      addEventListener() {},
       querySelector() {
         return makeElement();
       },

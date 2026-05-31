@@ -1105,6 +1105,7 @@ async function applyReagents(input) {
 
 function findReactionCandidates(molecule, resolution) {
   const reagents = resolution.reagents || [resolution.reagent];
+  const substrateSmiles = reactionSmilesForMolecule(molecule);
   const sodiumAmide = reagents.find((reagent) => reagent.id === "sodium_amide");
   const alkylHalide = reagents.find((reagent) => reagent.kind.includes("alkyl halide"));
   const grignard = reagents.find((reagent) => reagent.kind.includes("Grignard"));
@@ -1160,12 +1161,12 @@ function findReactionCandidates(molecule, resolution) {
     if (epoxideCandidates.length) return epoxideCandidates;
   }
 
-  if (hasAlkyne(molecule.canonicalSmiles)) {
+  if (hasAlkyne(substrateSmiles)) {
     const alkyneCandidates = alkyneReactionCandidates(molecule, reagentIds);
     if (alkyneCandidates.length) return alkyneCandidates;
   }
 
-  if (hasAlkene(molecule.canonicalSmiles)) {
+  if (hasAlkene(substrateSmiles)) {
     const alkeneCandidates = alkeneReactionCandidates(molecule, reagentIds);
     if (alkeneCandidates.length) return alkeneCandidates;
   }
@@ -1320,7 +1321,7 @@ function alkyneReactionCandidates(molecule, reagentIds) {
 }
 
 function alkeneReactionCandidates(molecule, reagentIds) {
-  const smiles = molecule.canonicalSmiles;
+  const smiles = reactionSmilesForMolecule(molecule);
 
   if (reagentIds.has("h2_metal")) {
     return [
@@ -1474,6 +1475,10 @@ function alkeneReactionCandidates(molecule, reagentIds) {
   }
 
   return [];
+}
+
+function reactionSmilesForMolecule(molecule) {
+  return molecule.structureKey || molecule.canonicalSmiles;
 }
 
 function epoxideReactionCandidates(molecule, reagentIds) {

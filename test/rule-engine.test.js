@@ -687,6 +687,18 @@ const tests = [
     },
   },
   {
+    name: "mCPBA ignores aromatic rings when a side-chain alkene is present",
+    run() {
+      const arylAlkene = {
+        ...molecule("aryl alkene", "C1=CC=C(CC/C=C\\C)C=C1"),
+        structureKey: "C/C=C\\CCc1ccccc1",
+      };
+      const [candidate] = context.alkeneReactionCandidates(arylAlkene, new Set(["mcpba"]));
+      assert.match(candidate.productSmiles, /c1ccccc1/);
+      assert.doesNotMatch(candidate.productSmiles, /C1=CC2OC2/);
+    },
+  },
+  {
     name: "acid opens epoxide to vicinal diol",
     run() {
       const [candidate] = productsFor("C1CO1", acidHydration);
