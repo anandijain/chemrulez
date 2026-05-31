@@ -30,6 +30,15 @@ Debug one pathway from the terminal:
 node scripts/pathway.js "3,3-dimethyl-1-butene" "HBr"
 ```
 
+## RDKit.js spike
+
+On the `codex-rdkit-js-spike` branch, open this static page to compare RDKit.js
+parsing, canonical SMILES, descriptors, depictions, and SMARTS matching:
+
+```txt
+http://localhost:5173/rdkit-spike.html
+```
+
 ## What works now
 
 - Import molecules by common name, SMILES, PubChem CID, or PubChem compound URL.

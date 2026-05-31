@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>chemrulez RDKit.js spike</title>
+    <link rel="stylesheet" href="./styles.css">
+    <script src="https://unpkg.com/@rdkit/rdkit/dist/RDKit_minimal.js"></script>
+  </head>
+  <body>
+    <main class="app rdkit-spike">
+      <section class="workspace">
+        <header class="topbar">
+          <div>
+            <h1>RDKit.js spike</h1>
+            <p>Browser-only experiment for parsing, depiction, descriptors, and substructure matching.</p>
+          </div>
+          <nav class="mode-nav" aria-label="Navigation">
+            <a href="./">chemrulez</a>
+          </nav>
+        </header>
+
+        <section class="panel" aria-labelledby="rdkit-input-title">
+          <h2 id="rdkit-input-title">Molecule</h2>
+          <form id="rdkitForm" class="input-row">
+            <input
+              id="rdkitSmiles"
+              name="smiles"
+              autocomplete="off"
+              value="C(#C)C"
+              placeholder="SMILES, e.g. C(#C)C, c1ccccc1, CC(Br)CBr"
+            >
+            <button id="rdkitRenderBtn" type="submit" disabled>Render</button>
+          </form>
+          <p id="rdkitStatus" class="status">Loading RDKit.js...</p>
+        </section>
+
+        <section class="molecule-view">
+          <article class="molecule-card">
+            <div id="rdkitDrawing" class="molecule-art">
+              <div class="empty-state">
+                <h2>Waiting for RDKit.js</h2>
+              </div>
+            </div>
+            <div class="molecule-meta">
+              <h2 id="rdkitName" class="molecule-name">RDKit molecule</h2>
+              <div id="rdkitMeta" class="meta-grid"></div>
+            </div>
+          </article>
+        </section>
+
+        <section class="panel" aria-labelledby="substructure-title">
+          <h2 id="substructure-title">Substructure</h2>
+          <form id="rdkitSmartsForm" class="input-row">
+            <input
+              id="rdkitSmarts"
+              name="smarts"
+              autocomplete="off"
+              value="C#C"
+              placeholder="SMARTS, e.g. C#C, CBr, c1ccccc1"
+            >
+            <button id="rdkitMatchBtn" type="submit" disabled>Match</button>
+          </form>
+          <p id="rdkitMatchStatus" class="status"></p>
+        </section>
+      </section>
+
+      <aside class="history">
+        <h2>Why This Exists</h2>
+        <p class="muted">
+          This branch tests whether RDKit.js should replace or sit behind the current local graph adapter.
+        </p>
+      </aside>
+    </main>
+
+    <script src="./src/rdkit-spike.js" type="module"></script>
+  </body>
+</html>
