@@ -153,6 +153,16 @@ const tests = [
     },
   },
   {
+    name: "acetylide alkylation connects at the alkyl halide leaving-group carbon",
+    run() {
+      const phenethylBromide = alkylHalide("phenethyl bromide", "c1ccccc1CC");
+      const [candidate] = productsFor("[C-]#CC", phenethylBromide);
+      assert.equal(candidate.label, "SN2 alkylation product");
+      assert.notEqual(candidate.productSmiles, "CCC1=CC=CC=C1C#CC");
+      assert.equal(candidate.productSmiles, "c1ccccc1CCC#CC");
+    },
+  },
+  {
     name: "graph alkyl halide classifier accepts bromoethane-shaped PubChem SMILES",
     run() {
       const classified = context.classifyAlkylHalide(

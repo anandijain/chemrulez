@@ -159,6 +159,13 @@ const localMolecules = [
     molecularWeight: "44.05",
   },
   {
+    keys: ["phenethylbromide", "2phenylethylbromide", "1bromo2phenylethane", "bromoethylbenzene"],
+    displayName: "Phenethyl bromide",
+    canonicalSmiles: "c1ccccc1CCBr",
+    formula: "C8H9Br",
+    molecularWeight: "185.06",
+  },
+  {
     keys: ["methyl2butene", "methylbutene", "2methyl2butene", "2methylbut2ene"],
     displayName: "2-Methyl-2-butene",
     canonicalSmiles: "CC=C(C)C",
@@ -2992,7 +2999,8 @@ function acetylideAlkylationCandidates(molecule, reagent) {
     ];
   }
 
-  const productSmiles = alkylateAcetylide(molecule.canonicalSmiles, reagent.alkylSmiles);
+  const productSmiles = graphAlkylateAcetylide(molecule.canonicalSmiles, reagent.molecule?.canonicalSmiles)
+    || alkylateAcetylide(molecule.canonicalSmiles, reagent.alkylSmiles);
   return [
     {
       id: `acetylide_alkylation_${reagent.id}`,
@@ -3066,6 +3074,58 @@ function alkylateAcetylide(acetylideSmiles, alkylSmiles) {
   }
 
   return acetylideSmiles.replace("[C-]", `C${alkylSmiles}`);
+}
+
+function graphAlkylateAcetylide(acetylideSmiles, alkylHalideSmiles) {
+  if (!alkylHalideSmiles) return null;
+  let acetylide;
+  let electrophile;
+  try {
+    acetylide = chem.fromSmiles(acetylideSmiles);
+    electrophile = chem.fromSmiles(alkylHalideSmiles);
+  } catch (error) {
+    return null;
+  }
+
+  const acetylideCarbon = findAcetylideAnionCarbon(acetylide.graph);
+  const halide = findAlkylHalideBond(electrophile.graph);
+  if (acetylideCarbon === null || !halide) return null;
+
+  const product = cloneGraph(acetylide.graph);
+  product.atoms[acetylideCarbon].token = "C";
+
+  const oldToNew = new Map();
+  for (const atom of electrophile.graph.atoms) {
+    if (atom.id === halide.halogen) continue;
+    const newId = product.atoms.length;
+    oldToNew.set(atom.id, newId);
+    product.atoms.push({ ...atom, id: newId });
+  }
+
+  for (const bond of electrophile.graph.bonds) {
+    if (bond.from === halide.halogen || bond.to === halide.halogen) continue;
+    product.bonds.push({
+      from: oldToNew.get(bond.from),
+      to: oldToNew.get(bond.to),
+      order: bond.order,
+    });
+  }
+
+  addGraphBond(product.bonds, acetylideCarbon, oldToNew.get(halide.carbon), 1);
+  product.root = oldToNew.get(electrophile.graph.root) ?? acetylideCarbon;
+  product.hasDisconnectedComponents = false;
+  product.hasRings = graphHasCycle(product.atoms, product.bonds);
+  return smilesFromGraph(product);
+}
+
+function findAcetylideAnionCarbon(graph) {
+  for (const atom of graph.atoms) {
+    if (atomElement(atom) !== "C" || !atom.token.includes("-")) continue;
+    const tripleCarbon = graphNeighbors(graph, atom.id)
+      .find((neighbor) => neighbor.bond.order === 3 && atomElement(graph.atoms[neighbor.atomIndex]) === "C");
+    if (tripleCarbon) return atom.id;
+  }
+  return null;
 }
 
 function renderCandidates(candidates, resolution) {
