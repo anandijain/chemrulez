@@ -552,6 +552,18 @@ select:focus {
   top: 24px;
 }
 
+.history-heading {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.iconish {
+  min-height: 32px;
+  padding: 0 10px;
+}
+
 .history ol {
   display: grid;
   gap: 10px;

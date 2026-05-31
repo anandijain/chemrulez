@@ -315,6 +315,39 @@ const tests = [
     },
   },
   {
+    name: "pathway serialization includes readable steps and structured route data",
+    run() {
+      const text = context.serializePathForSharing([
+        {
+          label: "Imported Propene",
+          smiles: "CC=C",
+          structureKey: "CC=C",
+          pubchemUrl: "https://pubchem.ncbi.nlm.nih.gov/compound/8252",
+          molecule: {
+            displayName: "Propene",
+            canonicalSmiles: "CC=C",
+            cid: 8252,
+          },
+        },
+        {
+          label: "Br2 -> Vicinal dibromide",
+          smiles: "CC(Br)CBr",
+          structureKey: "CC(Br)CBr",
+          pubchemUrl: "https://pubchem.ncbi.nlm.nih.gov/#query=CC(Br)CBr",
+        },
+      ], {
+        commitSha: "abcdef1234567890",
+        mode: "free",
+        puzzle: null,
+      });
+      assert.match(text, /chemrulez pathway/);
+      assert.match(text, /commit: abcdef1234567890/);
+      assert.match(text, /1\. Imported Propene/);
+      assert.match(text, /2\. Br2 -> Vicinal dibromide/);
+      assert.match(text, /"smiles": "CC\(Br\)CBr"/);
+    },
+  },
+  {
     name: "mercuric alkyne hydration gives ketone candidate",
     run() {
       const [candidate] = productsFor("CCC#C", HgHydration);

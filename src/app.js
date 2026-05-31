@@ -204,6 +204,7 @@ const els = {
   resolvedReagent: document.querySelector("#resolvedReagent"),
   results: document.querySelector("#results"),
   pathList: document.querySelector("#pathList"),
+  copyPathBtn: document.querySelector("#copyPathBtn"),
   resetBtn: document.querySelector("#resetBtn"),
 };
 
@@ -501,6 +502,21 @@ els.pathList.addEventListener("click", (event) => {
   const button = event.target.closest("[data-path-index]");
   if (!button) return;
   restorePathStep(Number(button.dataset.pathIndex));
+});
+
+els.copyPathBtn.addEventListener("click", async () => {
+  if (!state.path.length) return;
+  const text = serializePathForSharing();
+  try {
+    await copyTextToClipboard(text);
+    els.copyPathBtn.textContent = "Copied";
+    setTimeout(() => {
+      els.copyPathBtn.textContent = "Copy";
+    }, 1200);
+  } catch (error) {
+    console.error(error);
+    setImportStatus("Could not copy the path to the clipboard.", true);
+  }
 });
 
 document.querySelectorAll("[data-example]").forEach((button) => {
@@ -872,6 +888,8 @@ function structuresMatch(left, right) {
 }
 
 function renderPath() {
+  els.copyPathBtn.disabled = state.path.length === 0;
+
   if (!state.path.length) {
     els.pathList.innerHTML = `<li class="muted">No steps yet.</li>`;
     return;
@@ -894,6 +912,79 @@ function renderPath() {
       </li>
     `)
     .join("");
+}
+
+function serializePathForSharing(path = state.path, options = {}) {
+  const commitSha = options.commitSha ?? deployedCommitSha();
+  const mode = options.mode ?? state.mode;
+  const puzzle = options.puzzle ?? state.puzzle;
+  const steps = path.map((step, index) => ({
+    index: index + 1,
+    label: step.label,
+    smiles: step.smiles,
+    structureKey: step.structureKey || step.smiles,
+    pubchemUrl: step.pubchemUrl || pubChemUrlForSmiles(step.structureKey || step.smiles),
+    molecule: step.molecule ? {
+      displayName: step.molecule.displayName,
+      canonicalSmiles: step.molecule.canonicalSmiles,
+      cid: step.molecule.cid || null,
+    } : null,
+  }));
+  const readableSteps = steps
+    .map((step) => {
+      const graphKey = step.structureKey && step.structureKey !== step.smiles
+        ? `\n   graph: ${step.structureKey}`
+        : "";
+      return `${step.index}. ${step.label}\n   smiles: ${step.smiles}${graphKey}\n   pubchem: ${step.pubchemUrl}`;
+    })
+    .join("\n");
+  const payload = {
+    app: "chemrulez",
+    mode,
+    commitSha: commitSha || null,
+    puzzle: puzzle ? {
+      id: puzzle.id,
+      title: puzzle.title,
+      startName: puzzle.startName,
+      targetName: puzzle.targetName,
+    } : null,
+    steps,
+  };
+
+  return [
+    "chemrulez pathway",
+    commitSha ? `commit: ${commitSha}` : null,
+    puzzle ? `puzzle: ${puzzle.title}` : `mode: ${mode}`,
+    "",
+    readableSteps || "(empty path)",
+    "",
+    "```json",
+    JSON.stringify(payload, null, 2),
+    "```",
+  ].filter((line) => line !== null).join("\n");
+}
+
+function deployedCommitSha() {
+  const sha = els.commitLink?.dataset.commitSha || "";
+  return sha && !sha.includes("__COMMIT_SHA__") ? sha : "";
+}
+
+async function copyTextToClipboard(text) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  const copied = document.execCommand("copy");
+  textarea.remove();
+  if (!copied) throw new Error("Clipboard copy failed");
 }
 
 async function resolveReagentInput(input) {
