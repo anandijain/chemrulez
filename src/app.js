@@ -216,6 +216,13 @@ const localMolecules = [
     molecularWeight: "108.97",
   },
   {
+    keys: ["1bromobutane", "bromobutane", "bromo butane", "butylbromide", "butyl bromide", "nbutylbromide"],
+    displayName: "1-Bromobutane",
+    canonicalSmiles: "CCCCBr",
+    formula: "C4H9Br",
+    molecularWeight: "137.02",
+  },
+  {
     keys: ["co2", "carbondioxide"],
     displayName: "Carbon dioxide",
     canonicalSmiles: "O=C=O",
@@ -1061,6 +1068,9 @@ async function resolveStructuralReagent(input) {
 }
 
 async function fetchMoleculeLenient(input) {
+  const local = localMoleculeFromInput(input);
+  if (local) return local;
+
   const parsed = parseMoleculeInput(input);
   const attempts = parsed.type === "cid"
     ? [parsed]
@@ -1153,6 +1163,11 @@ function findReactionCandidates(molecule, resolution) {
   if (reagentIds.has("pbr3") || reagentIds.has("socl2") || reagentIds.has("tosyl_chloride")) {
     const alcoholActivationCandidates = alcoholActivationCandidatesForReagents(molecule, reagentIds);
     if (alcoholActivationCandidates.length) return alcoholActivationCandidates;
+  }
+
+  if (reagentIds.has("pcc") || reagentIds.has("dmp") || reagentIds.has("jones_oxidation")) {
+    const alcoholOxidationCandidates = alcoholOxidationCandidatesForReagents(molecule, reagentIds);
+    if (alcoholOxidationCandidates.length) return alcoholOxidationCandidates;
   }
 
   if (grignard && (hasCarbonyl(substrateSmiles) || isCarbonDioxide(substrateSmiles))) {
@@ -1914,6 +1929,49 @@ function tosylateFirstAlcohol(smiles) {
   if (!alcohol) return null;
   const alcoholSmiles = smilesFromGraph(parsed.graph);
   return alcoholSmiles.replace(/O(?![a-zA-Z\[])/, "OS(=O)(=O)c1ccc(C)cc1");
+}
+
+function oxidizeFirstAlcohol(smiles, options = {}) {
+  let parsed;
+  try {
+    parsed = chem.fromSmiles(smiles);
+  } catch (error) {
+    return null;
+  }
+
+  const alcohol = findFirstAlcohol(parsed.graph);
+  if (!alcohol) return null;
+  const degree = carbonNeighborCount(parsed.graph, alcohol.carbon);
+  const hydrogens = implicitHydrogenCount(parsed.graph, alcohol.carbon);
+  if (degree >= 3 || hydrogens < 1) return { blocked: true };
+
+  const product = cloneGraph(parsed.graph);
+  const carbonOxygenBond = graphBondBetween(product, alcohol.carbon, alcohol.oxygen);
+  if (!carbonOxygenBond) return null;
+  carbonOxygenBond.order = 2;
+  product.root = bestRootForProduct(product, alcohol.carbon);
+
+  if (degree <= 1 && options.strong) {
+    const hydroxylOxygen = addGraphAtom(product, "O");
+    addGraphBond(product.bonds, alcohol.carbon, hydroxylOxygen, 1);
+    return {
+      kind: "primary",
+      label: "Carboxylic acid",
+      smiles: smilesFromGraph(product),
+    };
+  }
+
+  return {
+    kind: degree <= 1 ? "primary" : "secondary",
+    label: degree <= 1 ? "Aldehyde" : "Ketone",
+    smiles: smilesFromGraph(product),
+  };
+}
+
+function carbonNeighborCount(graph, atomIndex) {
+  return graphNeighbors(graph, atomIndex)
+    .filter((neighbor) => atomElement(graph.atoms[neighbor.atomIndex]) === "C")
+    .length;
 }
 
 function classifySn2QualityFromGraph(graph, carbonIndex, title, alkylSmiles) {
@@ -2744,6 +2802,11 @@ function grignardReactionCandidates(molecule, reagent) {
         productSmiles: molecule.canonicalSmiles,
         bucket: "none",
         confidence: 0.4,
+        annotations: {
+          stereochemistry: "unchanged",
+          selectivity: "none",
+          warnings: ["The organomagnesium carbon group could not be identified."],
+        },
         explanation: [
           "The app recognized Grignard conditions but could not identify the carbon group being added.",
           "Try a specific reagent such as methylmagnesium bromide, CH3MgBr, ethylmagnesium bromide, or PhMgBr.",
@@ -2761,6 +2824,11 @@ function grignardReactionCandidates(molecule, reagent) {
         productSmiles: `${organoSmiles}C(=O)O`,
         bucket: "high",
         confidence: 0.78,
+        annotations: {
+          stereochemistry: "not stereospecific",
+          selectivity: "single",
+          mechanism: "Grignard carboxylation",
+        },
         explanation: [
           "Grignard reagents add to carbon dioxide.",
           "Acid workup gives a carboxylic acid with one extra carbon.",
@@ -2777,6 +2845,12 @@ function grignardReactionCandidates(molecule, reagent) {
       productSmiles: addGrignardToCarbonyl(smiles, organoSmiles),
       bucket: "high",
       confidence: 0.76,
+      annotations: {
+        stereochemistry: "racemic if new stereocenter forms",
+        selectivity: "single",
+        mechanism: "Grignard carbonyl addition",
+        warnings: ["Stereochemistry at newly formed alcohol centers is not yet encoded."],
+      },
       explanation: [
         "The Grignard carbon attacks the carbonyl carbon.",
         "Acid workup protonates the alkoxide to give an alcohol.",
@@ -2798,6 +2872,11 @@ function grignardFormationCandidates(molecule, alkylHalide) {
         productSmiles: smiles,
         bucket: "none",
         confidence: 0.3,
+        annotations: {
+          stereochemistry: "unchanged",
+          selectivity: "none",
+          warnings: ["The organomagnesium product could not be serialized."],
+        },
         explanation: [
           "The app recognized Mg/ether conditions but could not serialize the organomagnesium product yet.",
         ],
@@ -2814,6 +2893,12 @@ function grignardFormationCandidates(molecule, alkylHalide) {
       productSmiles,
       bucket: blocked ? "low" : "high",
       confidence: blocked ? 0.45 : 0.82,
+      annotations: {
+        stereochemistry: "unchanged",
+        selectivity: blocked ? "low" : "single",
+        mechanism: "Grignard formation",
+        warnings: blocked ? ["Tertiary Grignard formation can have elimination/side-reaction competition."] : [],
+      },
       explanation: [
         "Magnesium inserts into the carbon-halogen bond under dry ether conditions.",
         `${alkylHalide.canonical || molecule.displayName} is treated as an alkyl halide substrate.`,
@@ -2883,6 +2968,59 @@ function alcoholTosylationCandidates(molecule) {
         "TsCl and pyridine convert alcohols into tosylates.",
         "The C-O bond is retained, so this preserves the carbon stereocenter in the simplified rule set.",
         "The product is now a better leaving-group substrate for later substitution or elimination rules once tosylate leaving groups are generalized.",
+      ],
+    }),
+  ];
+}
+
+function alcoholOxidationCandidatesForReagents(molecule, reagentIds) {
+  const strong = reagentIds.has("jones_oxidation");
+  const product = oxidizeFirstAlcohol(reactionSmilesForMolecule(molecule), { strong });
+  if (!product) return noAlcoholCandidate(molecule);
+  if (product.blocked) {
+    return [
+      candidate({
+        id: "alcohol_oxidation_tertiary_blocked",
+        label: "No simple alcohol oxidation",
+        productName: molecule.displayName,
+        productSmiles: reactionSmilesForMolecule(molecule),
+        bucket: "none",
+        confidence: 0.76,
+        annotations: {
+          stereochemistry: "unchanged",
+          selectivity: "none",
+          warnings: ["Tertiary alcohols do not undergo ordinary PCC/DMP/Jones oxidation without C-C bond cleavage."],
+        },
+        explanation: [
+          "The graph found a tertiary alcohol.",
+          "Common first-year alcohol oxidants require a hydrogen on the alcohol-bearing carbon.",
+        ],
+      }),
+    ];
+  }
+
+  const primary = product.kind === "primary";
+  return [
+    candidate({
+      id: strong ? "alcohol_jones_oxidation" : "alcohol_mild_oxidation",
+      label: product.label,
+      productName: `${molecule.displayName} oxidation product`,
+      productSmiles: product.smiles,
+      bucket: "high",
+      confidence: strong ? 0.8 : 0.78,
+      annotations: {
+        stereochemistry: primary || product.kind === "secondary" ? "consumed at reacting alcohol carbon" : "unchanged",
+        selectivity: "single",
+        mechanism: strong ? "strong alcohol oxidation" : "mild alcohol oxidation",
+        warnings: primary && !strong ? [] : (primary ? ["Strong oxidants take primary alcohols to carboxylic acids in this simplified rule set."] : []),
+      },
+      explanation: [
+        primary
+          ? (strong
+            ? "Strong chromium/permanganate-style conditions oxidize primary alcohols to carboxylic acids."
+            : "Mild oxidants such as PCC, DMP, or Swern oxidation stop primary alcohols at aldehydes.")
+          : "Secondary alcohols oxidize to ketones.",
+        "Tertiary alcohols are not oxidized by this ordinary first-year rule.",
       ],
     }),
   ];

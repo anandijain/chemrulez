@@ -228,6 +228,24 @@ export const reagentAliases = [
     aliases: ["socl2", "thionyl chloride", "socl2 pyridine"],
   },
   {
+    id: "pcc",
+    canonical: "PCC",
+    kind: "mild alcohol oxidation",
+    aliases: ["pcc", "pyridinium chlorochromate"],
+  },
+  {
+    id: "dmp",
+    canonical: "DMP",
+    kind: "mild alcohol oxidation",
+    aliases: ["dmp", "dess martin", "dess-martin", "dess martin periodinane", "swern", "swern oxidation", "dmso oxalyl chloride"],
+  },
+  {
+    id: "jones_oxidation",
+    canonical: "Na2Cr2O7, H2SO4",
+    kind: "strong alcohol oxidation",
+    aliases: ["jones", "jones oxidation", "cr o3", "cro3", "na2cr2o7", "dichromate", "chromic acid", "kmno4 heat", "hot kmno4"],
+  },
+  {
     id: "grignard_workup",
     canonical: "RMgX, H3O+",
     kind: "Grignard addition",

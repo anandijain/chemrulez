@@ -136,6 +136,9 @@ const magnesium = reagent("mg_ether", "Mg, Et2O", "Grignard formation");
 const PBr3 = reagent("pbr3", "PBr3", "alcohol to alkyl bromide");
 const SOCl2 = reagent("socl2", "SOCl2", "alcohol to alkyl chloride");
 const TsCl = reagent("tosyl_chloride", "TsCl, pyridine", "alcohol tosylation");
+const PCC = reagent("pcc", "PCC", "mild alcohol oxidation");
+const DMP = reagent("dmp", "DMP", "mild alcohol oxidation");
+const Jones = reagent("jones_oxidation", "Na2Cr2O7, H2SO4", "strong alcohol oxidation");
 const formaldehydeReagent = reagent("structural_formaldehyde", "Formaldehyde", "known structure");
 formaldehydeReagent.molecule = { displayName: "Formaldehyde", canonicalSmiles: "C=O" };
 
@@ -565,6 +568,33 @@ const tests = [
     run() {
       const formaldehyde = context.localMoleculeFromInput("formaldehyde");
       assert.equal(formaldehyde.canonicalSmiles, "C=O");
+      const butylBromide = context.localMoleculeFromInput("bromo butane");
+      assert.equal(butylBromide.canonicalSmiles, "CCCCBr");
+    },
+  },
+  {
+    name: "butyl Grignard adds to formaldehyde after local reagent resolution",
+    run() {
+      const butylBromide = context.localMoleculeFromInput("bromo butane");
+      const [grignard] = context.findReactionCandidates(
+        context.withChemMetadata(butylBromide),
+        resolution(magnesium),
+      );
+      assert.equal(grignard.productSmiles, "CCCC[Mg]Br");
+
+      const formaldehyde = context.resolveStructuralReagent("formaldehyde");
+      return formaldehyde.then((resolved) => {
+        const [alcohol] = context.findReactionCandidates(
+          context.withChemMetadata({
+            displayName: "1-Bromobutane Grignard reagent",
+            canonicalSmiles: grignard.productSmiles,
+            structureKey: grignard.productSmiles,
+          }),
+          { reagent: resolved, reagents: [resolved] },
+        );
+        assert.equal(alcohol.label, "Alcohol after Grignard addition and acid workup");
+        assert.equal(alcohol.productSmiles, "C(O)(CCCC)");
+      });
     },
   },
   {
@@ -857,13 +887,43 @@ const tests = [
       assert.equal(candidate.productSmiles, "c1ccccc1C(=O)O");
     },
   },
+  {
+    name: "mild and strong alcohol oxidations handle primary and secondary alcohols",
+    run() {
+      const [aldehyde] = productsFor("CCCO", PCC);
+      assert.equal(aldehyde.label, "Aldehyde");
+      assert.equal(aldehyde.productSmiles, "CCC=O");
+      assert.equal(aldehyde.annotations.mechanism, "mild alcohol oxidation");
+
+      const [carboxylicAcid] = productsFor("CCCO", Jones);
+      assert.equal(carboxylicAcid.label, "Carboxylic acid");
+      assert.equal(carboxylicAcid.productSmiles, "CCC(O)=O");
+
+      const [ketone] = productsFor("CC(O)C", DMP);
+      assert.equal(ketone.label, "Ketone");
+      assert.equal(ketone.productSmiles, "CC(C)=O");
+    },
+  },
+  {
+    name: "tertiary alcohols block ordinary oxidation",
+    run() {
+      const [candidate] = productsFor("CC(O)(C)C", PCC);
+      assert.equal(candidate.label, "No simple alcohol oxidation");
+      assert.equal(candidate.bucket, "none");
+    },
+  },
 ];
 
-let passed = 0;
-for (const test of tests) {
-  test.run();
-  passed += 1;
-  console.log(`ok ${passed} - ${test.name}`);
-}
+(async () => {
+  let passed = 0;
+  for (const test of tests) {
+    await test.run();
+    passed += 1;
+    console.log(`ok ${passed} - ${test.name}`);
+  }
 
-console.log(`\n${passed} rule tests passed`);
+  console.log(`\n${passed} rule tests passed`);
+})().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
