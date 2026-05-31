@@ -18,6 +18,11 @@
 - Treat SMILES/SMARTS as graph serializations or graph queries, not as the source
   of truth.
 - Move reaction rules behind graph transforms and graph-pattern queries.
+- Evaluate RDKit.js/WASM as a future browser-only chemistry layer before adding
+  it as a dependency. The current app should stay lightweight for now, but
+  RDKit.js looks promising for robust SMILES parsing/canonicalization,
+  substructure matching, stereochemistry, depiction, and eventually richer
+  mechanism-style drawings or arrow-pushing visualizations.
 - Use reaction conditions as first-class inputs, not just reagent names.
   Temperature, solvent, nucleophile/base strength, concentration, and substrate
   class should affect SN1/SN2/E1/E2 ranking.
