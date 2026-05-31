@@ -998,6 +998,15 @@ function findReactionCandidates(molecule, resolution) {
   const baseStrength = baseStrengthForReagents(reagents);
   const substrateAlkylHalide = classifyAlkylHalide(molecule, molecule.displayName || molecule.canonicalSmiles);
 
+  if (substrateAlkylHalide && reagentIds.has("mg_ether")) {
+    return grignardFormationCandidates(molecule, substrateAlkylHalide);
+  }
+
+  if (reagentIds.has("pbr3") || reagentIds.has("socl2") || reagentIds.has("tosyl_chloride")) {
+    const alcoholActivationCandidates = alcoholActivationCandidatesForReagents(molecule, reagentIds);
+    if (alcoholActivationCandidates.length) return alcoholActivationCandidates;
+  }
+
   if (grignard && (hasCarbonyl(molecule.canonicalSmiles) || isCarbonDioxide(molecule.canonicalSmiles))) {
     return grignardReactionCandidates(molecule, grignard);
   }
@@ -1522,6 +1531,67 @@ function findAlkylHalideBond(graph) {
   return null;
 }
 
+function findFirstAlcohol(graph) {
+  for (const atom of graph.atoms) {
+    if (atomElement(atom) !== "O") continue;
+    const carbonNeighbor = graphNeighbors(graph, atom.id)
+      .find((neighbor) => atomElement(graph.atoms[neighbor.atomIndex]) === "C" && neighbor.bond.order === 1);
+    if (!carbonNeighbor) continue;
+    if (implicitHydrogenCount(graph, atom.id) < 1) continue;
+    return { oxygen: atom.id, carbon: carbonNeighbor.atomIndex };
+  }
+  return null;
+}
+
+function alkylHalideToGrignard(smiles) {
+  let parsed;
+  try {
+    parsed = chem.fromSmiles(smiles);
+  } catch (error) {
+    return null;
+  }
+
+  const halide = findAlkylHalideBond(parsed.graph);
+  if (!halide) return null;
+  const product = cloneGraph(parsed.graph);
+  const magnesium = addGraphAtom(product, "[Mg]");
+  removeGraphBond(product, halide.carbon, halide.halogen);
+  addGraphBond(product.bonds, halide.carbon, magnesium, 1);
+  addGraphBond(product.bonds, magnesium, halide.halogen, 1);
+  product.root = bestRootForProduct(product, halide.carbon);
+  return smilesFromGraph(product);
+}
+
+function replaceFirstAlcoholOxygen(smiles, replacementToken) {
+  let parsed;
+  try {
+    parsed = chem.fromSmiles(smiles);
+  } catch (error) {
+    return null;
+  }
+
+  const alcohol = findFirstAlcohol(parsed.graph);
+  if (!alcohol) return null;
+  const product = cloneGraph(parsed.graph);
+  product.atoms[alcohol.oxygen].token = replacementToken;
+  product.root = bestRootForProduct(product, alcohol.carbon);
+  return smilesFromGraph(product);
+}
+
+function tosylateFirstAlcohol(smiles) {
+  let parsed;
+  try {
+    parsed = chem.fromSmiles(smiles);
+  } catch (error) {
+    return null;
+  }
+
+  const alcohol = findFirstAlcohol(parsed.graph);
+  if (!alcohol) return null;
+  const alcoholSmiles = smilesFromGraph(parsed.graph);
+  return alcoholSmiles.replace(/O(?![a-zA-Z\[])/, "OS(=O)(=O)c1ccc(C)cc1");
+}
+
 function classifySn2QualityFromGraph(graph, carbonIndex, title, alkylSmiles) {
   const normalizedTitle = normalizeText(title);
   if (normalizedTitle.includes("tert") || normalizedTitle.includes("tertiary")) return "blocked";
@@ -1537,7 +1607,7 @@ function classifySn2QualityFromGraph(graph, carbonIndex, title, alkylSmiles) {
 }
 
 function classifyGrignard(molecule, input) {
-  if (!/\[Mg\+2\]|\bMg\b/i.test(molecule.canonicalSmiles) && !/magnesium|mgbr|mgcl|mgi/i.test(input)) {
+  if (!/\[Mg\+2\]|\[Mg\]|\bMg\b/i.test(molecule.canonicalSmiles) && !/magnesium|mgbr|mgcl|mgi/i.test(input)) {
     return null;
   }
 
@@ -1662,6 +1732,7 @@ function elementSymbol(atomicNumber) {
     8: "O",
     9: "F",
     14: "Si",
+    12: "Mg",
     15: "P",
     16: "S",
     17: "Cl",
@@ -1789,7 +1860,7 @@ function readSmilesAtom(smiles, index) {
   if (bracket) return { token: bracket[0], length: bracket[0].length };
 
   const twoChar = smiles.slice(index, index + 2);
-  if (["Cl", "Br"].includes(twoChar)) return { token: twoChar, length: 2 };
+  if (["Cl", "Br", "Mg"].includes(twoChar)) return { token: twoChar, length: 2 };
 
   const char = smiles[index];
   if (/[BCNOPSFHIbcno]/.test(char)) return { token: char, length: 1 };
@@ -2253,6 +2324,113 @@ function grignardReactionCandidates(molecule, reagent) {
   ];
 }
 
+function grignardFormationCandidates(molecule, alkylHalide) {
+  const productSmiles = alkylHalideToGrignard(molecule.canonicalSmiles);
+  if (!productSmiles) {
+    return [
+      candidate({
+        id: "grignard_formation_no_product",
+        label: "No Grignard formation product",
+        productName: molecule.displayName,
+        productSmiles: molecule.canonicalSmiles,
+        bucket: "none",
+        confidence: 0.3,
+        explanation: [
+          "The app recognized Mg/ether conditions but could not serialize the organomagnesium product yet.",
+        ],
+      }),
+    ];
+  }
+
+  const blocked = alkylHalide.sn2Quality === "blocked";
+  return [
+    candidate({
+      id: "grignard_formation",
+      label: blocked ? "Tertiary Grignard formation is unreliable" : "Grignard reagent",
+      productName: `${molecule.displayName} Grignard reagent`,
+      productSmiles,
+      bucket: blocked ? "low" : "high",
+      confidence: blocked ? 0.45 : 0.82,
+      explanation: [
+        "Magnesium inserts into the carbon-halogen bond under dry ether conditions.",
+        `${alkylHalide.canonical || molecule.displayName} is treated as an alkyl halide substrate.`,
+        blocked
+          ? "Tertiary organomagnesium formation can be problematic because elimination and side reactions compete."
+          : "Primary, secondary, allylic, benzylic, and aryl/vinylic halides are common Grignard precursors in the simplified rule set.",
+      ],
+    }),
+  ];
+}
+
+function alcoholActivationCandidatesForReagents(molecule, reagentIds) {
+  if (reagentIds.has("pbr3")) {
+    return alcoholSubstitutionCandidates(molecule, "Br", "Alkyl bromide", "PBr3 converts alcohols to alkyl bromides, commonly with inversion at a stereocenter.");
+  }
+  if (reagentIds.has("socl2")) {
+    return alcoholSubstitutionCandidates(molecule, "Cl", "Alkyl chloride", "SOCl2 converts alcohols to alkyl chlorides; stereochemical details depend on conditions and are not yet encoded.");
+  }
+  if (reagentIds.has("tosyl_chloride")) {
+    return alcoholTosylationCandidates(molecule);
+  }
+  return [];
+}
+
+function alcoholSubstitutionCandidates(molecule, halogenToken, label, note) {
+  const productSmiles = replaceFirstAlcoholOxygen(molecule.canonicalSmiles, halogenToken);
+  if (!productSmiles) return noAlcoholCandidate(molecule);
+  return [
+    candidate({
+      id: `alcohol_to_${halogenToken.toLowerCase()}`,
+      label,
+      productName: `${molecule.displayName} ${label.toLowerCase()}`,
+      productSmiles,
+      bucket: "high",
+      confidence: 0.78,
+      explanation: [
+        note,
+        "The graph rule finds a carbon-bound OH group and replaces the oxygen leaving group with halide.",
+      ],
+    }),
+  ];
+}
+
+function alcoholTosylationCandidates(molecule) {
+  const productSmiles = tosylateFirstAlcohol(molecule.canonicalSmiles);
+  if (!productSmiles) return noAlcoholCandidate(molecule);
+  return [
+    candidate({
+      id: "alcohol_tosylation",
+      label: "Tosylate ester",
+      productName: `${molecule.displayName} tosylate`,
+      productSmiles,
+      bucket: "high",
+      confidence: 0.76,
+      explanation: [
+        "TsCl and pyridine convert alcohols into tosylates.",
+        "The C-O bond is retained, so this preserves the carbon stereocenter in the simplified rule set.",
+        "The product is now a better leaving-group substrate for later substitution or elimination rules once tosylate leaving groups are generalized.",
+      ],
+    }),
+  ];
+}
+
+function noAlcoholCandidate(molecule) {
+  return [
+    candidate({
+      id: "no_alcohol_for_activation",
+      label: "No alcohol found",
+      productName: molecule.displayName,
+      productSmiles: molecule.canonicalSmiles,
+      bucket: "none",
+      confidence: 0.4,
+      explanation: [
+        "These reagents need a carbon-bound OH group.",
+        "The current graph did not find an alcohol oxygen on this substrate.",
+      ],
+    }),
+  ];
+}
+
 function addGrignardToCarbonyl(smiles, organoSmiles) {
   const clean = stripStereo(smiles);
   if (clean.includes("C(=O)")) return clean.replace("C(=O)", `C(O)(${organoSmiles})`);
@@ -2265,6 +2443,8 @@ function grignardOrganoFragment(smiles, input) {
   if (normalized.includes("ch3") || normalized.includes("methyl")) return "C";
   if (normalized.includes("c2h5") || normalized.includes("ch3ch2") || normalized.includes("ethyl")) return "CC";
   if (normalized.includes("ph") || normalized.includes("phenyl")) return "c1ccccc1";
+  const organomagnesium = stripStereo(smiles).match(/^(.+)\[Mg\](Cl|Br|I)$/i);
+  if (organomagnesium) return organomagnesium[1];
 
   const clean = smiles.split(".").find((part) => part.includes("-")) || "";
   if (clean === "[CH3-]") return "C";

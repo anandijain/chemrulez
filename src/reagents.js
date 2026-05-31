@@ -204,6 +204,30 @@ export const reagentAliases = [
     aliases: ["o3", "o3 dms", "o3 me2s", "o3 zn", "o3 zn h2o", "ozone", "ozonolysis", "reductive ozonolysis"],
   },
   {
+    id: "mg_ether",
+    canonical: "Mg, Et2O",
+    kind: "Grignard formation",
+    aliases: ["mg", "mg ether", "mg et2o", "magnesium", "magnesium ether", "dry ether", "ether mg"],
+  },
+  {
+    id: "tosyl_chloride",
+    canonical: "TsCl, pyridine",
+    kind: "alcohol tosylation",
+    aliases: ["tscl", "toscl", "tosyl chloride", "p-toluenesulfonyl chloride", "pyridine tscl", "tscl pyridine"],
+  },
+  {
+    id: "pbr3",
+    canonical: "PBr3",
+    kind: "alcohol to alkyl bromide",
+    aliases: ["pbr3", "phosphorus tribromide"],
+  },
+  {
+    id: "socl2",
+    canonical: "SOCl2",
+    kind: "alcohol to alkyl chloride",
+    aliases: ["socl2", "thionyl chloride", "socl2 pyridine"],
+  },
+  {
     id: "grignard_workup",
     canonical: "RMgX, H3O+",
     kind: "Grignard addition",

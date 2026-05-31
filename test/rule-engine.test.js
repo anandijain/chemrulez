@@ -128,6 +128,10 @@ const methylGrignard = reagent("local_grignard_methyl", "CH3MgBr, H3O+", "Grigna
 methylGrignard.organoSmiles = "C";
 const phenylGrignard = reagent("local_grignard_phenyl", "PhMgBr, H3O+", "Grignard addition");
 phenylGrignard.organoSmiles = "c1ccccc1";
+const magnesium = reagent("mg_ether", "Mg, Et2O", "Grignard formation");
+const PBr3 = reagent("pbr3", "PBr3", "alcohol to alkyl bromide");
+const SOCl2 = reagent("socl2", "SOCl2", "alcohol to alkyl chloride");
+const TsCl = reagent("tosyl_chloride", "TsCl, pyridine", "alcohol tosylation");
 
 const tests = [
   {
@@ -425,6 +429,35 @@ const tests = [
       const [nitrile] = productsFor("CCCBr", cyanide);
       assert.equal(nitrile.label, "SN2 substitution product");
       assert.equal(nitrile.productSmiles, "CCCC#N");
+    },
+  },
+  {
+    name: "magnesium inserts into alkyl halides to make Grignard reagents",
+    run() {
+      const [candidate] = productsFor("CCBr", magnesium);
+      assert.equal(candidate.label, "Grignard reagent");
+      assert.equal(candidate.productSmiles, "CC[Mg]Br");
+      assert.equal(context.grignardOrganoFragment(candidate.productSmiles, "ethyl magnesium bromide"), "CC");
+    },
+  },
+  {
+    name: "PBr3 and SOCl2 convert alcohols into alkyl halides",
+    run() {
+      const [bromide] = productsFor("CCO", PBr3);
+      assert.equal(bromide.label, "Alkyl bromide");
+      assert.equal(bromide.productSmiles, "CCBr");
+
+      const [chloride] = productsFor("CCO", SOCl2);
+      assert.equal(chloride.label, "Alkyl chloride");
+      assert.equal(chloride.productSmiles, "CCCl");
+    },
+  },
+  {
+    name: "TsCl converts alcohols into tosylates",
+    run() {
+      const [tosylate] = productsFor("CCO", TsCl);
+      assert.equal(tosylate.label, "Tosylate ester");
+      assert.equal(tosylate.productSmiles, "CCOS(=O)(=O)c1ccc(C)cc1");
     },
   },
   {
