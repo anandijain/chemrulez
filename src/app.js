@@ -3508,12 +3508,6 @@ function handleGlobalShortcut(event) {
     return;
   }
 
-  if (commandKey && key === "r") {
-    event.preventDefault();
-    resetWorkspace();
-    return;
-  }
-
   const allowRouteUndoFromTextField = !inTextField || !event.target.value;
   if (!allowRouteUndoFromTextField) return;
 
@@ -3688,3 +3682,4 @@ renderMode();
 renderPuzzle();
 renderMolecule();
 renderPath();
+focusPrimaryInput();
