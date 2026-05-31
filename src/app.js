@@ -47,7 +47,10 @@ const chem = {
         if (!canSerialize) return stripStereo(smiles).replaceAll("#", "").replaceAll("=", "");
         const product = cloneGraph(graph);
         for (const bond of product.bonds) {
-          if (bond.order > 1) bond.order = 1;
+          if (bond.order > 1) {
+            clearDoubleBondStereo(product, bond);
+            bond.order = 1;
+          }
         }
         return smilesFromGraph(product);
       },
@@ -56,6 +59,7 @@ const chem = {
         const alkene = findFirstCarbonCarbonBondOrder(graph, 2);
         if (!alkene) return null;
         const product = cloneGraph(graph);
+        clearDoubleBondStereo(product, product.bonds[alkene.bondIndex]);
         product.bonds[alkene.bondIndex].order = 1;
         const oxygen = addGraphAtom(product, "O");
         addGraphBond(product.bonds, alkene.from, oxygen, 1);
@@ -82,6 +86,7 @@ const chem = {
         const alkene = findFirstCarbonCarbonBondOrder(graph, 2);
         if (!alkene) return null;
         const product = cloneGraph(graph);
+        clearDoubleBondStereo(product, product.bonds[alkene.bondIndex]);
         product.bonds[alkene.bondIndex].order = 1;
 
         const firstCarbon = alkeneAdditionCarbon(graph, alkene, mode);
@@ -1536,6 +1541,7 @@ function alkeneAdditionProductWithGroupOnCarbon(graph, alkene, groupCarbon, grou
   const product = cloneGraph(graph);
   const productBond = product.bonds[alkene.bondIndex];
   if (!productBond) return null;
+  clearDoubleBondStereo(product, productBond);
   productBond.order = 1;
   const otherCarbon = groupCarbon === alkene.from ? alkene.to : alkene.from;
   addSubstituentAtom(product, groupCarbon, groupToAtomToken(group));
@@ -1664,7 +1670,7 @@ function replaceFirstAlcoholOxygen(smiles, replacementToken) {
   const product = cloneGraph(parsed.graph);
   product.atoms[alcohol.oxygen].token = replacementToken;
   product.root = bestRootForProduct(product, alcohol.carbon);
-  return preserveAlkeneStereo(smiles, smilesFromGraph(product));
+  return smilesFromGraph(product);
 }
 
 function tosylateFirstAlcohol(smiles) {
@@ -1795,19 +1801,22 @@ function graphFromRdkitMol(mol) {
       to: merged.atoms[1],
       order: rdkitBondOrder(merged.bo, aromatic),
       aromatic,
+      direction: rdkitBondDirection(merged),
     };
   });
   for (const bond of bonds.filter((bond) => bond.aromatic)) {
     atoms[bond.from].token = aromaticAtomToken(atoms[bond.from].token);
     atoms[bond.to].token = aromaticAtomToken(atoms[bond.to].token);
   }
-  return {
+  const graph = {
     atoms,
     bonds,
     root: atoms[0]?.id ?? null,
     hasRings: graphHasCycle(atoms, bonds),
     hasDisconnectedComponents: graphComponentCount(atoms, bonds) > 1,
   };
+  annotateDoubleBondStereo(graph);
+  return graph;
 }
 
 function rdkitAtomToken(atom) {
@@ -1854,6 +1863,28 @@ function rdkitBondOrder(order, aromatic = false) {
   return 1;
 }
 
+function rdkitBondDirection(bond) {
+  const stereo = String(bond.stereo || bond.dir || bond.bondDir || "").toLowerCase();
+  if (stereo.includes("up") || stereo.includes("begindash")) return "/";
+  if (stereo.includes("down") || stereo.includes("beginwed")) return "\\";
+  return "";
+}
+
+function annotateDoubleBondStereo(graph) {
+  for (const bond of graph.bonds.filter((item) => item.order === 2)) {
+    const left = graphNeighbors(graph, bond.from)
+      .find((neighbor) => neighbor.atomIndex !== bond.to && neighbor.bond.direction);
+    const right = graphNeighbors(graph, bond.to)
+      .find((neighbor) => neighbor.atomIndex !== bond.from && neighbor.bond.direction);
+    if (!left || !right) continue;
+    bond.stereo = left.bond.direction === right.bond.direction ? "trans" : "cis";
+    bond.stereoBonds = [
+      { bondIndex: left.bondIndex, direction: left.bond.direction },
+      { bondIndex: right.bondIndex, direction: right.bond.direction },
+    ];
+  }
+}
+
 function graphHasCycle(atoms, bonds) {
   return bonds.length >= atoms.length && atoms.length > 0;
 }
@@ -1885,6 +1916,7 @@ function parseSmilesGraph(smiles) {
   const ringClosures = new Map();
   let currentAtom = null;
   let pendingBondOrder = 1;
+  let pendingBondDirection = "";
   let hasRings = false;
   let hasDisconnectedComponents = false;
 
@@ -1912,6 +1944,7 @@ function parseSmilesGraph(smiles) {
     }
 
     if (char === "/" || char === "\\") {
+      pendingBondDirection = char;
       index += 1;
       continue;
     }
@@ -1944,21 +1977,24 @@ function parseSmilesGraph(smiles) {
 
     const atomIndex = atoms.length;
     atoms.push({ id: atomIndex, token: atomToken.token });
-    if (currentAtom !== null) addGraphBond(bonds, currentAtom, atomIndex, pendingBondOrder);
+    if (currentAtom !== null) addGraphBond(bonds, currentAtom, atomIndex, pendingBondOrder, pendingBondDirection);
     currentAtom = atomIndex;
     pendingBondOrder = 1;
+    pendingBondDirection = "";
     index += atomToken.length;
   }
 
   if (branchStack.length) throw new Error(`SMILES branch left open: ${smiles}`);
   if (ringClosures.size) throw new Error(`SMILES ring left open: ${smiles}`);
-  return {
+  const graph = {
     atoms,
     bonds,
     root: atoms[0]?.id ?? null,
     hasRings,
     hasDisconnectedComponents,
   };
+  annotateDoubleBondStereo(graph);
+  return graph;
 }
 
 function readSmilesAtom(smiles, index) {
@@ -1973,8 +2009,8 @@ function readSmilesAtom(smiles, index) {
   return null;
 }
 
-function addGraphBond(bonds, from, to, order) {
-  bonds.push({ from, to, order });
+function addGraphBond(bonds, from, to, order, direction = "") {
+  bonds.push({ from, to, order, direction });
 }
 
 function removeGraphBond(graph, atomA, atomB) {
@@ -2034,6 +2070,18 @@ function graphBondBetween(graph, atomA, atomB) {
   return graph.bonds.find((bond) => {
     return (bond.from === atomA && bond.to === atomB) || (bond.from === atomB && bond.to === atomA);
   }) || null;
+}
+
+function clearDoubleBondStereo(graph, bond) {
+  if (!bond) return;
+  bond.stereo = "";
+  bond.stereoBonds = [];
+  for (const atomIndex of [bond.from, bond.to]) {
+    for (const neighbor of graphNeighbors(graph, atomIndex)) {
+      if (neighbor.bond === bond) continue;
+      neighbor.bond.direction = "";
+    }
+  }
 }
 
 function epoxideAttackCarbon(graph, epoxide, mode) {
@@ -2133,6 +2181,8 @@ function connectedComponentGraph(graph, root, excludedAtoms) {
         from: oldToNew.get(bond.from),
         to: oldToNew.get(bond.to),
         order: bond.order,
+        direction: bond.direction || "",
+        aromatic: Boolean(bond.aromatic),
       })),
     root: oldToNew.get(root),
     hasRings: graph.hasRings,
@@ -2178,8 +2228,8 @@ function ringLabelsForGraph(graph, treeBondIndexes) {
     if (treeBondIndexes.has(bondIndex)) return;
     const digit = nextRingDigit;
     nextRingDigit += 1;
-    labels.get(bond.from).push({ digit, order: bond.order });
-    labels.get(bond.to).push({ digit, order: bond.order });
+    labels.get(bond.from).push({ digit, order: bond.order, direction: bond.direction || "" });
+    labels.get(bond.to).push({ digit, order: bond.order, direction: bond.direction || "" });
   });
 
   return labels;
@@ -2193,7 +2243,7 @@ function smilesFromAtom(graph, atomIndex, parentIndex, children, ringLabels) {
   let smiles = `${atom.token}${ringLabelsForAtom(ringLabels, atomIndex)}`;
 
   for (const neighbor of branchNeighbors) {
-    smiles += `(${bondSymbol(neighbor.bond.order)}${smilesFromAtom(
+    smiles += `(${bondSymbol(neighbor.bond)}${smilesFromAtom(
       graph,
       neighbor.atomIndex,
       atomIndex,
@@ -2203,7 +2253,7 @@ function smilesFromAtom(graph, atomIndex, parentIndex, children, ringLabels) {
   }
 
   if (mainNeighbor) {
-    smiles += `${bondSymbol(mainNeighbor.bond.order)}${smilesFromAtom(
+    smiles += `${bondSymbol(mainNeighbor.bond)}${smilesFromAtom(
       graph,
       mainNeighbor.atomIndex,
       atomIndex,
@@ -2217,14 +2267,16 @@ function smilesFromAtom(graph, atomIndex, parentIndex, children, ringLabels) {
 
 function ringLabelsForAtom(ringLabels, atomIndex) {
   return (ringLabels.get(atomIndex) || [])
-    .map((label) => `${bondSymbol(label.order)}${label.digit}`)
+    .map((label) => `${bondSymbol(label)}${label.digit}`)
     .join("");
 }
 
-function bondSymbol(order) {
+function bondSymbol(bondOrOrder) {
+  const order = typeof bondOrOrder === "number" ? bondOrOrder : bondOrOrder.order;
+  const direction = typeof bondOrOrder === "number" ? "" : (bondOrOrder.direction || "");
   if (order === 2) return "=";
   if (order === 3) return "#";
-  return "";
+  return direction;
 }
 
 function hasAlkyne(smiles) {
@@ -2273,25 +2325,6 @@ function reduceTripleToDoubleStereo(smiles, geometry) {
   return geometry === "cis"
     ? `${leftSubstituent}/C=C\\${rightSubstituent}`
     : `${leftSubstituent}/C=C/${rightSubstituent}`;
-}
-
-function preserveAlkeneStereo(inputSmiles, productSmiles) {
-  const stereo = firstSimpleAlkeneStereo(inputSmiles);
-  if (!stereo) return productSmiles;
-  const plainInput = stripStereo(inputSmiles);
-  const plainProduct = stripStereo(productSmiles);
-  const alkeneIndex = plainInput.indexOf(stereo.plain);
-  if (alkeneIndex < 0 || plainProduct.indexOf(stereo.plain) < 0) return productSmiles;
-  return productSmiles.replace(stereo.plain, stereo.stereo);
-}
-
-function firstSimpleAlkeneStereo(smiles) {
-  const match = smiles.match(/([A-Za-z0-9)\]])([\\/])C=C([\\/])([A-Za-z0-9([])/);
-  if (!match) return null;
-  return {
-    plain: `${match[1]}C=C${match[4]}`,
-    stereo: `${match[1]}${match[2]}C=C${match[3]}${match[4]}`,
-  };
 }
 
 function fullyHydrogenate(smiles) {
@@ -3040,12 +3073,12 @@ function substituteAlkylHalide(smiles, nucleophileToken) {
     addGraphBond(product.bonds, halide.carbon, nitrileCarbon, 1);
     addGraphBond(product.bonds, nitrileCarbon, nitrogen, 3);
     product.root = bestRootForProduct(product, halide.carbon);
-    return preserveAlkeneStereo(smiles, smilesFromConnectedComponent(product, product.root, new Set([halide.halogen])));
+    return smilesFromConnectedComponent(product, product.root, new Set([halide.halogen]));
   }
 
   product.atoms[halide.halogen].token = nucleophileToken;
   product.root = bestRootForProduct(product, halide.carbon);
-  return preserveAlkeneStereo(smiles, smilesFromGraph(product));
+  return smilesFromGraph(product);
 }
 
 function acetylideAlkylationCandidates(molecule, reagent) {

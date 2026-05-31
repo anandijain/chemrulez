@@ -319,6 +319,15 @@ const tests = [
     },
   },
   {
+    name: "graph adapter stores alkene stereo on directional single bonds",
+    run() {
+      const graph = context.parseSmilesGraph("C/C=C\\CCO");
+      const alkene = context.findFirstCarbonCarbonBondOrder(graph, 2);
+      assert.equal(alkene.stereo, "cis");
+      assert.equal(context.smilesFromGraph(graph), "C/C=C\\CCO");
+    },
+  },
+  {
     name: "graph adapter preserves branched skeletons during hydrogenation",
     run() {
       assert.equal(context.fullyHydrogenate("CC=C(C)C"), "CCC(C)C");
