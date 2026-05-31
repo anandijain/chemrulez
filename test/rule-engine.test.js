@@ -328,6 +328,16 @@ const tests = [
     },
   },
   {
+    name: "RDKit graphs recover alkene stereo from input SMILES when JSON omits bond directions",
+    run() {
+      const graph = context.parseSmilesGraph("CC=CCCO");
+      context.applyAlkeneStereoFromSmiles(graph, "C/C=C\\CCO");
+      const alkene = context.findFirstCarbonCarbonBondOrder(graph, 2);
+      assert.equal(alkene.stereo, "cis");
+      assert.equal(context.smilesFromGraph(graph), "C/C=C\\CCO");
+    },
+  },
+  {
     name: "graph adapter preserves branched skeletons during hydrogenation",
     run() {
       assert.equal(context.fullyHydrogenate("CC=C(C)C"), "CCC(C)C");

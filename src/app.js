@@ -23,6 +23,7 @@ const chem = {
   fromSmiles(smiles) {
     const rdkitMol = getRdkitMol(smiles);
     const graph = rdkitMol ? graphFromRdkitMol(rdkitMol) : parseSmilesGraph(smiles);
+    if (rdkitMol) applyAlkeneStereoFromSmiles(graph, smiles);
     const rdkitCanonical = rdkitMol ? safeRdkitCall(() => rdkitMol.get_smiles()) : null;
     rdkitMol?.delete?.();
     const canSerialize = !graph.hasDisconnectedComponents;
@@ -1883,6 +1884,52 @@ function annotateDoubleBondStereo(graph) {
       { bondIndex: right.bondIndex, direction: right.bond.direction },
     ];
   }
+}
+
+function applyAlkeneStereoFromSmiles(graph, smiles) {
+  if (!/[\\/]/.test(smiles)) return graph;
+
+  let sourceGraph;
+  try {
+    sourceGraph = parseSmilesGraph(smiles);
+  } catch (error) {
+    return graph;
+  }
+
+  const sourceAlkenes = sourceGraph.bonds.filter((bond) => bond.order === 2 && bond.stereo);
+  const targetAlkenes = graph.bonds.filter((bond) => bond.order === 2);
+  for (let index = 0; index < Math.min(sourceAlkenes.length, targetAlkenes.length); index += 1) {
+    copyAlkeneStereo(sourceGraph, sourceAlkenes[index], graph, targetAlkenes[index]);
+  }
+  return graph;
+}
+
+function copyAlkeneStereo(sourceGraph, sourceBond, targetGraph, targetBond) {
+  const sourceDirections = alkeneSideDirections(sourceGraph, sourceBond);
+  const targetSides = alkeneSideBonds(targetGraph, targetBond);
+  for (const side of ["from", "to"]) {
+    if (!sourceDirections[side] || !targetSides[side]) continue;
+    targetSides[side].direction = sourceDirections[side];
+  }
+  annotateDoubleBondStereo(targetGraph);
+}
+
+function alkeneSideDirections(graph, bond) {
+  const sides = alkeneSideBonds(graph, bond);
+  return {
+    from: sides.from?.direction || "",
+    to: sides.to?.direction || "",
+  };
+}
+
+function alkeneSideBonds(graph, bond) {
+  const from = graphNeighbors(graph, bond.from)
+    .find((neighbor) => neighbor.atomIndex !== bond.to && neighbor.bond.order === 1)
+    ?.bond || null;
+  const to = graphNeighbors(graph, bond.to)
+    .find((neighbor) => neighbor.atomIndex !== bond.from && neighbor.bond.order === 1)
+    ?.bond || null;
+  return { from, to };
 }
 
 function graphHasCycle(atoms, bonds) {
