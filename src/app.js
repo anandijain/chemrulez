@@ -12,13 +12,24 @@ const state = {
   mode: new URLSearchParams(window.location.search).get("mode") === "puzzles" ? "puzzles" : "free",
 };
 
+const rdkitState = {
+  module: null,
+  promise: null,
+  ready: false,
+  failed: false,
+};
+
 const chem = {
   fromSmiles(smiles) {
-    const graph = parseSmilesGraph(smiles);
+    const rdkitMol = getRdkitMol(smiles);
+    const graph = rdkitMol ? graphFromRdkitMol(rdkitMol) : parseSmilesGraph(smiles);
+    const rdkitCanonical = rdkitMol ? safeRdkitCall(() => rdkitMol.get_smiles()) : null;
+    rdkitMol?.delete?.();
     const canSerialize = !graph.hasDisconnectedComponents;
     return {
       graph,
-      canonicalSmiles: canSerialize ? smilesFromGraph(graph) : smiles,
+      canonicalSmiles: rdkitCanonical || (canSerialize ? smilesFromGraph(graph) : smiles),
+      structureEngine: rdkitCanonical ? "RDKit.js" : "local graph",
       hasBondOrder(order) {
         return graph.bonds.some((bond) => bond.order === order);
       },
@@ -364,6 +375,12 @@ async function fetchMolecule(request, rawInput) {
 }
 
 async function fetchMoleculeWithFallback(request, rawInput) {
+  if (request.type === "smiles") {
+    await initRDKit();
+    const rdkitMolecule = moleculeFromRDKitSmiles(request.value, rawInput);
+    if (rdkitMolecule) return rdkitMolecule;
+  }
+
   const attempts = moleculeLookupRequests(request, rawInput);
   let lastError;
 
@@ -378,6 +395,27 @@ async function fetchMoleculeWithFallback(request, rawInput) {
   const local = localMoleculeFromInput(rawInput);
   if (local) return local;
   throw lastError;
+}
+
+function moleculeFromRDKitSmiles(smiles, rawInput) {
+  const mol = getRdkitMol(smiles);
+  if (!mol) return null;
+  const canonicalSmiles = safeRdkitCall(() => mol.get_smiles()) || smiles;
+  const descriptors = safeRdkitCall(() => JSON.parse(mol.get_descriptors())) || {};
+  mol.delete?.();
+  return {
+    id: `rdkit:${canonicalSmiles}`,
+    cid: null,
+    input: rawInput,
+    inputType: "smiles",
+    displayName: rawInput === smiles ? canonicalSmiles : rawInput,
+    canonicalSmiles,
+    isomericSmiles: canonicalSmiles,
+    formula: descriptors.formula || "derived",
+    molecularWeight: descriptors.exactmw ? Number(descriptors.exactmw).toFixed(2) : "derived",
+    imageUrl: imageUrlForSmiles(canonicalSmiles),
+    pubchemUrl: pubChemUrlForSmiles(canonicalSmiles),
+  };
 }
 
 function moleculeLookupRequests(request, rawInput) {
@@ -539,7 +577,7 @@ function renderMolecule() {
   els.activeMolecule.innerHTML = `
     <article class="molecule-card">
       <div class="molecule-art">
-        <img src="${molecule.imageUrl}" alt="Structure of ${escapeHtml(molecule.displayName)}">
+        <img src="${structureImageUrlForMolecule(molecule)}" alt="Structure of ${escapeHtml(molecule.displayName)}">
       </div>
       <div class="molecule-meta">
         <h2 class="molecule-name">${escapeHtml(molecule.displayName)}</h2>
@@ -585,7 +623,7 @@ function withChemMetadata(molecule) {
   return {
     ...molecule,
     structureKey: parsed.canonicalSmiles,
-    structureEngine: "local graph",
+    structureEngine: parsed.structureEngine || "local graph",
     pubchemUrl: molecule.pubchemUrl || pubChemUrlForMolecule(molecule),
   };
 }
@@ -637,7 +675,7 @@ function renderPuzzle() {
   els.puzzleStatus.className = `status-inline ${state.solved ? "solved" : ""}`;
   els.puzzleDetails.innerHTML = `
     <div class="puzzle-target">
-      <img src="${target.imageUrl}" alt="Target structure for ${escapeHtml(target.displayName)}">
+      <img src="${structureImageUrlForMolecule(target)}" alt="Target structure for ${escapeHtml(target.displayName)}">
       <div>
         <strong>${escapeHtml(state.puzzle.startName)} -> ${escapeHtml(state.puzzle.targetName)}</strong>
         <p>${escapeHtml(state.puzzle.tier)} / ${escapeHtml(state.puzzle.source)}</p>
@@ -675,7 +713,7 @@ function renderPath() {
     .map((step, index) => `
       <li class="path-step">
         <button class="path-step-restore" type="button" data-path-index="${index}" aria-label="Restore ${escapeHtml(step.label)}">
-          <img src="${step.imageUrl || imageUrlForSmiles(step.smiles)}" alt="Structure for ${escapeHtml(step.label)}">
+          <img src="${structureImageUrlForStep(step)}" alt="Structure for ${escapeHtml(step.label)}">
           <span>
             <strong>${escapeHtml(step.label)}</strong><br>
             <code>${escapeHtml(step.smiles)}</code>
@@ -1519,6 +1557,150 @@ function candidate(options) {
   return options;
 }
 
+function initRDKit() {
+  if (rdkitState.promise) return rdkitState.promise;
+  if (typeof window === "undefined" || typeof window.initRDKitModule !== "function") {
+    rdkitState.failed = true;
+    rdkitState.promise = Promise.resolve(null);
+    return rdkitState.promise;
+  }
+
+  rdkitState.promise = window.initRDKitModule({
+    locateFile: (file) => `https://unpkg.com/@rdkit/rdkit/dist/${file}`,
+  })
+    .then((module) => {
+      rdkitState.module = module;
+      rdkitState.ready = true;
+      return module;
+    })
+    .catch((error) => {
+      console.error(error);
+      rdkitState.failed = true;
+      return null;
+    });
+  return rdkitState.promise;
+}
+
+function refreshAfterRDKitReady() {
+  if (!rdkitState.ready) return;
+  if (state.active) state.active = withChemMetadata(state.active);
+  if (state.target) state.target = withChemMetadata(state.target);
+  state.path = state.path.map((step) => {
+    const molecule = step.molecule ? withChemMetadata(step.molecule) : null;
+    return {
+      ...step,
+      molecule: molecule ? moleculeSnapshot(molecule) : step.molecule,
+      smiles: molecule?.canonicalSmiles || step.smiles,
+      structureKey: molecule?.structureKey || step.structureKey,
+      pubchemUrl: step.pubchemUrl || (molecule ? pubChemUrlForMolecule(molecule) : pubChemUrlForSmiles(step.structureKey || step.smiles)),
+    };
+  });
+  renderMolecule();
+  renderPath();
+  renderPuzzle();
+}
+
+function getRdkitMol(smiles) {
+  if (!rdkitState.ready || !rdkitState.module) return null;
+  return safeRdkitCall(() => rdkitState.module.get_mol(smiles)) || null;
+}
+
+function safeRdkitCall(fn) {
+  try {
+    return fn();
+  } catch (error) {
+    return null;
+  }
+}
+
+function graphFromRdkitMol(mol) {
+  const data = JSON.parse(mol.get_json());
+  const molecule = data.molecules?.[0];
+  if (!molecule) throw new Error("RDKit did not return a molecule graph.");
+  const atomDefaults = data.defaults?.atom || {};
+  const bondDefaults = data.defaults?.bond || {};
+  const atoms = (molecule.atoms || []).map((atom, index) => {
+    const merged = { ...atomDefaults, ...atom };
+    return {
+      id: index,
+      token: rdkitAtomToken(merged),
+      implicitHydrogens: Number.isFinite(merged.impHs) ? merged.impHs : null,
+      charge: merged.chg || 0,
+    };
+  });
+  const bonds = (molecule.bonds || []).map((bond) => {
+    const merged = { ...bondDefaults, ...bond };
+    return {
+      from: merged.atoms[0],
+      to: merged.atoms[1],
+      order: rdkitBondOrder(merged.bo),
+    };
+  });
+  return {
+    atoms,
+    bonds,
+    root: atoms[0]?.id ?? null,
+    hasRings: graphHasCycle(atoms, bonds),
+    hasDisconnectedComponents: graphComponentCount(atoms, bonds) > 1,
+  };
+}
+
+function rdkitAtomToken(atom) {
+  const symbol = elementSymbol(atom.z);
+  if (atom.chg === -1) return `[${symbol}-]`;
+  if (atom.chg === 1) return `[${symbol}+]`;
+  if (atom.chg) return `[${symbol}${atom.chg > 0 ? "+" : ""}${atom.chg}]`;
+  return symbol;
+}
+
+function elementSymbol(atomicNumber) {
+  return {
+    1: "H",
+    5: "B",
+    6: "C",
+    7: "N",
+    8: "O",
+    9: "F",
+    14: "Si",
+    15: "P",
+    16: "S",
+    17: "Cl",
+    35: "Br",
+    53: "I",
+  }[atomicNumber] || "C";
+}
+
+function rdkitBondOrder(order) {
+  const numeric = Number(order);
+  if (numeric >= 2.5) return 3;
+  if (numeric >= 1.5) return 2;
+  return 1;
+}
+
+function graphHasCycle(atoms, bonds) {
+  return bonds.length >= atoms.length && atoms.length > 0;
+}
+
+function graphComponentCount(atoms, bonds) {
+  if (!atoms.length) return 0;
+  const seen = new Set();
+  let count = 0;
+
+  for (const atom of atoms) {
+    if (seen.has(atom.id)) continue;
+    count += 1;
+    const stack = [atom.id];
+    while (stack.length) {
+      const atomIndex = stack.pop();
+      if (seen.has(atomIndex)) continue;
+      seen.add(atomIndex);
+      for (const neighbor of graphNeighbors({ bonds }, atomIndex)) stack.push(neighbor.atomIndex);
+    }
+  }
+
+  return count;
+}
+
 function parseSmilesGraph(smiles) {
   const atoms = [];
   const bonds = [];
@@ -1730,6 +1912,8 @@ function atomValence(graph, atomIndex) {
 }
 
 function implicitHydrogenCount(graph, atomIndex) {
+  const rdkitHydrogens = graph.atoms[atomIndex]?.implicitHydrogens;
+  if (Number.isFinite(rdkitHydrogens)) return Math.max(0, rdkitHydrogens);
   const element = atomElement(graph.atoms[atomIndex]);
   const valenceTargets = { C: 4, N: 3, O: 2 };
   const target = valenceTargets[element];
@@ -2675,7 +2859,7 @@ function alkylateAcetylide(acetylideSmiles, alkylSmiles) {
 function renderCandidates(candidates, resolution) {
   setResultsHtml(candidates
     .map((candidate, index) => {
-      const imageUrl = imageUrlForSmiles(candidate.productSmiles);
+      const imageUrl = structureImageUrlForSmiles(candidate.productSmiles);
       const disabled = candidate.bucket === "none" ? "disabled" : "";
       return `
         <article class="candidate">
@@ -2789,6 +2973,31 @@ function imageUrlForCid(cid) {
   return `${pubchemBase}/compound/cid/${encodeURIComponent(cid)}/PNG?image_size=large`;
 }
 
+function structureImageUrlForMolecule(molecule) {
+  return rdkitSvgDataUrl(molecule.canonicalSmiles)
+    || molecule.imageUrl
+    || imageUrlForSmiles(molecule.canonicalSmiles);
+}
+
+function structureImageUrlForStep(step) {
+  return rdkitSvgDataUrl(step.smiles)
+    || step.imageUrl
+    || imageUrlForSmiles(step.smiles);
+}
+
+function structureImageUrlForSmiles(smiles) {
+  return rdkitSvgDataUrl(smiles) || imageUrlForSmiles(smiles);
+}
+
+function rdkitSvgDataUrl(smiles) {
+  const mol = getRdkitMol(smiles);
+  if (!mol) return null;
+  const svg = safeRdkitCall(() => mol.get_svg());
+  mol.delete?.();
+  if (!svg) return null;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
 function imageUrlForSmiles(smiles) {
   return `${pubchemBase}/compound/smiles/PNG?smiles=${encodeURIComponent(smiles)}&image_size=large`;
 }
@@ -2862,6 +3071,7 @@ function escapeHtml(value) {
 }
 
 initCommitLink();
+initRDKit().then(refreshAfterRDKitReady);
 populatePuzzleSelect();
 renderMode();
 renderPuzzle();

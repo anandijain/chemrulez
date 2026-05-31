@@ -317,6 +317,34 @@ const tests = [
     },
   },
   {
+    name: "RDKit JSON can be adapted into the app graph shape",
+    run() {
+      const graph = context.graphFromRdkitMol({
+        get_json() {
+          return JSON.stringify({
+            defaults: {
+              atom: { z: 6, impHs: 0, chg: 0 },
+              bond: { bo: 1 },
+            },
+            molecules: [{
+              atoms: [{ impHs: 3 }, { impHs: 1 }, { z: 35 }],
+              bonds: [
+                { atoms: [0, 1] },
+                { atoms: [1, 2] },
+              ],
+            }],
+          });
+        },
+      });
+
+      assert.equal(graph.atoms[2].token, "Br");
+      assert.equal(context.implicitHydrogenCount(graph, 1), 1);
+      assert.equal(graph.bonds[0].from, 0);
+      assert.equal(graph.bonds[0].to, 1);
+      assert.equal(graph.bonds[0].order, 1);
+    },
+  },
+  {
     name: "PubChem links prefer CID then fall back to SMILES search",
     run() {
       assert.equal(
