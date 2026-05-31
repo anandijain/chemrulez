@@ -852,6 +852,7 @@ function serializePathForSharing(path = state.path, options = {}) {
     molecule: step.molecule ? {
       displayName: step.molecule.displayName,
       canonicalSmiles: step.molecule.canonicalSmiles,
+      structureKey: step.molecule.structureKey || step.structureKey || step.smiles,
       cid: step.molecule.cid || null,
     } : null,
   }));
@@ -3428,6 +3429,7 @@ function renderCandidates(candidates, resolution) {
         displayName: candidate.productName,
         canonicalSmiles: candidate.productSmiles,
         isomericSmiles: candidate.productSmiles,
+        structureKey: candidate.productStructureKey || candidate.productSmiles,
         formula: null,
         molecularWeight: null,
         imageUrl: imageUrlForSmiles(candidate.productSmiles),
