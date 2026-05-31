@@ -309,7 +309,15 @@ const reagentAliases = [
     canonical: "NaOH, H2O",
     kind: "hydroxide nucleophile",
     baseStrength: "moderate",
+    nucleophile: { token: "O", label: "hydroxide" },
     aliases: ["naoh", "oh-", "hydroxide", "aqueous hydroxide", "naoh h2o", "koh", "koh h2o"],
+  },
+  {
+    id: "cyanide",
+    canonical: "NaCN",
+    kind: "cyanide nucleophile",
+    nucleophile: { token: "CN", label: "cyanide" },
+    aliases: ["nacn", "kcn", "cyanide", "sodium cyanide", "potassium cyanide", "cn-"],
   },
   {
     id: "e2_base",
@@ -1163,6 +1171,7 @@ function findReactionCandidates(molecule, resolution) {
   const sodiumAmide = reagents.find((reagent) => reagent.id === "sodium_amide");
   const alkylHalide = reagents.find((reagent) => reagent.kind.includes("alkyl halide"));
   const grignard = reagents.find((reagent) => reagent.kind.includes("Grignard"));
+  const nucleophile = reagents.find((reagent) => reagent.nucleophile);
   const reagentIds = new Set(reagents.map((reagent) => reagent.id));
   const baseStrength = baseStrengthForReagents(reagents);
   const substrateAlkylHalide = classifyAlkylHalide(molecule, molecule.displayName || molecule.canonicalSmiles);
@@ -1177,6 +1186,10 @@ function findReactionCandidates(molecule, resolution) {
 
   if (baseStrength && hasVinylHalide(molecule.canonicalSmiles)) {
     return vinylHalideDehydrohalogenationCandidates(molecule, baseStrength);
+  }
+
+  if (substrateAlkylHalide && nucleophile) {
+    return alkylHalideSubstitutionCandidates(molecule, substrateAlkylHalide, nucleophile);
   }
 
   if (substrateAlkylHalide && isEliminationCondition(reagentIds)) {
@@ -2698,6 +2711,74 @@ function eliminationExplanation(mode, alkylHalide, product, favored) {
       ? "The more substituted alkene is ranked major by the Zaitsev rule."
       : "This less substituted alkene is included as a minor elimination product.",
   ];
+}
+
+function alkylHalideSubstitutionCandidates(molecule, alkylHalide, nucleophile) {
+  if (alkylHalide.sn2Quality === "blocked") {
+    return [
+      {
+        id: `tertiary_halide_no_sn2_${nucleophile.id}`,
+        label: "No useful SN2 substitution",
+        productName: molecule.displayName,
+        productSmiles: molecule.canonicalSmiles,
+        bucket: "none",
+        confidence: 0.84,
+        explanation: [
+          `${alkylHalide.canonical} is treated as a ${alkylHalide.kind}.`,
+          `${nucleophile.canonical} supplies ${nucleophile.nucleophile.label}, but tertiary alkyl halides are blocked for SN2.`,
+          "E1/E2 pathways are more likely under suitable conditions.",
+        ],
+      },
+    ];
+  }
+
+  const secondary = alkylHalide.sn2Quality === "poor";
+  const productSmiles = substituteAlkylHalide(molecule.canonicalSmiles, nucleophile.nucleophile.token);
+  return [
+    {
+      id: `alkyl_halide_sn2_${nucleophile.id}`,
+      label: secondary ? "Competing SN2 substitution" : "SN2 substitution product",
+      productName: `${molecule.displayName} substitution product`,
+      productSmiles: productSmiles || molecule.canonicalSmiles,
+      bucket: secondary ? "mixture" : "high",
+      confidence: secondary ? 0.52 : 0.8,
+      explanation: [
+        `${alkylHalide.canonical} is treated as a ${alkylHalide.kind}.`,
+        `${nucleophile.canonical} supplies ${nucleophile.nucleophile.label} as a nucleophile.`,
+        secondary
+          ? "Secondary alkyl halides can substitute, but E2 competition is significant."
+          : "Primary, methyl, allylic, or benzylic halides are good SN2 substrates.",
+      ],
+    },
+  ];
+}
+
+function substituteAlkylHalide(smiles, nucleophileToken) {
+  let parsed;
+  try {
+    parsed = chem.fromSmiles(smiles);
+  } catch (error) {
+    return null;
+  }
+
+  const halide = findAlkylHalideBond(parsed.graph);
+  if (!halide) return null;
+
+  const product = cloneGraph(parsed.graph);
+  if (nucleophileToken === "CN") {
+    removeGraphBond(product, halide.carbon, halide.halogen);
+    product.atoms[halide.halogen].token = "*";
+    const nitrileCarbon = addGraphAtom(product, "C");
+    const nitrogen = addGraphAtom(product, "N");
+    addGraphBond(product.bonds, halide.carbon, nitrileCarbon, 1);
+    addGraphBond(product.bonds, nitrileCarbon, nitrogen, 3);
+    product.root = bestRootForProduct(product, halide.carbon);
+    return smilesFromConnectedComponent(product, product.root, new Set([halide.halogen]));
+  }
+
+  product.atoms[halide.halogen].token = nucleophileToken;
+  product.root = bestRootForProduct(product, halide.carbon);
+  return smilesFromGraph(product);
 }
 
 function acetylideAlkylationCandidates(molecule, reagent) {

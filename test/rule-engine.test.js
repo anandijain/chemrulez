@@ -102,6 +102,9 @@ const HBr = reagent("hbr", "HBr", "hydrohalogenation");
 const HBrPeroxides = reagent("hbr_peroxides", "HBr, ROOR", "radical anti-Markovnikov hydrohalogenation");
 const acidHydration = reagent("acid_hydration", "H3O+", "acid-catalyzed alkene hydration");
 const hydroxide = reagent("hydroxide", "NaOH, H2O", "hydroxide nucleophile");
+hydroxide.nucleophile = { token: "O", label: "hydroxide" };
+const cyanide = reagent("cyanide", "NaCN", "cyanide nucleophile");
+cyanide.nucleophile = { token: "CN", label: "cyanide" };
 const ethoxideHeat = reagent("e2_base", "NaOEt, heat", "strong base E2 conditions");
 const tertButoxide = reagent("bulky_e2_base", "t-BuOK, heat", "bulky base E2 conditions");
 const solvolysisHeat = reagent("e1_heat", "EtOH, heat", "weak nucleophile E1 conditions");
@@ -370,6 +373,29 @@ const tests = [
       const [anti] = productsFor("CC=C", HBrPeroxides);
       assert.equal(markovnikov.productSmiles, "CC(Br)C");
       assert.equal(anti.productSmiles, "CCCBr");
+    },
+  },
+  {
+    name: "primary alkyl halides substitute with hydroxide and cyanide nucleophiles",
+    run() {
+      assert.equal(context.resolveKnownReagent("sodium cyanide").id, "cyanide");
+      const [alcohol] = productsFor("CCCBr", hydroxide);
+      assert.equal(alcohol.label, "SN2 substitution product");
+      assert.equal(alcohol.productSmiles, "CCCO");
+      const [nitrile] = productsFor("CCCBr", cyanide);
+      assert.equal(nitrile.label, "SN2 substitution product");
+      assert.equal(nitrile.productSmiles, "CCCC#N");
+    },
+  },
+  {
+    name: "propene anti-Markovnikov bromination product can undergo SN2 substitution",
+    run() {
+      const [bromide] = productsFor("CC=C", HBrPeroxides);
+      assert.equal(bromide.productSmiles, "CCCBr");
+      const [nitrile] = productsFor(bromide.productSmiles, cyanide);
+      assert.equal(nitrile.productSmiles, "CCCC#N");
+      const [alcohol] = productsFor(bromide.productSmiles, hydroxide);
+      assert.equal(alcohol.productSmiles, "CCCO");
     },
   },
   {
