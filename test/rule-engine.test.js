@@ -528,6 +528,20 @@ const tests = [
     },
   },
   {
+    name: "alcohol activation preserves untouched alkene geometry",
+    run() {
+      const [bromide] = productsFor("C/C=C\\CCO", PBr3);
+      assert.equal(bromide.productSmiles, "C/C=C\\CCBr");
+    },
+  },
+  {
+    name: "SN2 substitution preserves untouched alkene geometry",
+    run() {
+      const [nitrile] = productsFor("C/C=C\\CCBr", cyanide);
+      assert.equal(nitrile.productSmiles, "C/C=C\\CCC#N");
+    },
+  },
+  {
     name: "TsCl converts alcohols into tosylates",
     run() {
       const [tosylate] = productsFor("CCO", TsCl);

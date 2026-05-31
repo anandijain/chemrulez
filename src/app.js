@@ -1664,7 +1664,7 @@ function replaceFirstAlcoholOxygen(smiles, replacementToken) {
   const product = cloneGraph(parsed.graph);
   product.atoms[alcohol.oxygen].token = replacementToken;
   product.root = bestRootForProduct(product, alcohol.carbon);
-  return smilesFromGraph(product);
+  return preserveAlkeneStereo(smiles, smilesFromGraph(product));
 }
 
 function tosylateFirstAlcohol(smiles) {
@@ -2273,6 +2273,25 @@ function reduceTripleToDoubleStereo(smiles, geometry) {
   return geometry === "cis"
     ? `${leftSubstituent}/C=C\\${rightSubstituent}`
     : `${leftSubstituent}/C=C/${rightSubstituent}`;
+}
+
+function preserveAlkeneStereo(inputSmiles, productSmiles) {
+  const stereo = firstSimpleAlkeneStereo(inputSmiles);
+  if (!stereo) return productSmiles;
+  const plainInput = stripStereo(inputSmiles);
+  const plainProduct = stripStereo(productSmiles);
+  const alkeneIndex = plainInput.indexOf(stereo.plain);
+  if (alkeneIndex < 0 || plainProduct.indexOf(stereo.plain) < 0) return productSmiles;
+  return productSmiles.replace(stereo.plain, stereo.stereo);
+}
+
+function firstSimpleAlkeneStereo(smiles) {
+  const match = smiles.match(/([A-Za-z0-9)\]])([\\/])C=C([\\/])([A-Za-z0-9([])/);
+  if (!match) return null;
+  return {
+    plain: `${match[1]}C=C${match[4]}`,
+    stereo: `${match[1]}${match[2]}C=C${match[3]}${match[4]}`,
+  };
 }
 
 function fullyHydrogenate(smiles) {
@@ -3021,12 +3040,12 @@ function substituteAlkylHalide(smiles, nucleophileToken) {
     addGraphBond(product.bonds, halide.carbon, nitrileCarbon, 1);
     addGraphBond(product.bonds, nitrileCarbon, nitrogen, 3);
     product.root = bestRootForProduct(product, halide.carbon);
-    return smilesFromConnectedComponent(product, product.root, new Set([halide.halogen]));
+    return preserveAlkeneStereo(smiles, smilesFromConnectedComponent(product, product.root, new Set([halide.halogen])));
   }
 
   product.atoms[halide.halogen].token = nucleophileToken;
   product.root = bestRootForProduct(product, halide.carbon);
-  return smilesFromGraph(product);
+  return preserveAlkeneStereo(smiles, smilesFromGraph(product));
 }
 
 function acetylideAlkylationCandidates(molecule, reagent) {
