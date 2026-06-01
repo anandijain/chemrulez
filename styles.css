@@ -16,6 +16,53 @@
     sans-serif;
 }
 
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #111713;
+    --surface: #19211d;
+    --surface-2: #222c27;
+    --ink: #edf3ef;
+    --muted: #a6b4ad;
+    --line: #34413b;
+    --accent: #25a985;
+    --accent-dark: #54c5a7;
+    --warn: #e0b15b;
+    --bad: #ef9a9a;
+    --shadow: 0 10px 30px rgb(0 0 0 / 28%);
+  }
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f7f7f4;
+  --surface: #ffffff;
+  --surface-2: #f0f2f1;
+  --ink: #17201d;
+  --muted: #5d6763;
+  --line: #d9dfdc;
+  --accent: #137a63;
+  --accent-dark: #0f5f4e;
+  --warn: #8a5a00;
+  --bad: #9b2c2c;
+  --shadow: 0 10px 30px rgb(23 32 29 / 9%);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #111713;
+  --surface: #19211d;
+  --surface-2: #222c27;
+  --ink: #edf3ef;
+  --muted: #a6b4ad;
+  --line: #34413b;
+  --accent: #25a985;
+  --accent-dark: #54c5a7;
+  --warn: #e0b15b;
+  --bad: #ef9a9a;
+  --shadow: 0 10px 30px rgb(0 0 0 / 28%);
+}
+
 * {
   box-sizing: border-box;
 }
@@ -31,6 +78,12 @@ button,
 input,
 select {
   font: inherit;
+}
+
+input,
+select {
+  background: var(--surface);
+  color: var(--ink);
 }
 
 button {
@@ -127,6 +180,21 @@ input:disabled {
 .mode-nav a.active,
 .mode-nav a:hover {
   background: var(--surface-2);
+}
+
+.theme-picker select {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  min-height: 42px;
+  padding: 0 10px;
+}
+
+.sr-only {
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  position: absolute;
+  width: 1px;
 }
 
 h1,

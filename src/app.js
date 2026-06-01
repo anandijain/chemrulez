@@ -240,6 +240,7 @@ const els = {
   commitLink: document.querySelector("#commitLink"),
   freePlayLink: document.querySelector("#freePlayLink"),
   puzzlesLink: document.querySelector("#puzzlesLink"),
+  themeSelect: document.querySelector("#themeSelect"),
   puzzleSelect: document.querySelector("#puzzleSelect"),
   startPuzzleBtn: document.querySelector("#startPuzzleBtn"),
   puzzleDetails: document.querySelector("#puzzleDetails"),
@@ -4217,6 +4218,58 @@ function initCommitLink() {
   els.commitLink.title = `Deployed commit ${sha}`;
 }
 
+const themeStorageKey = "chemrulez:theme";
+const themeChoices = new Set(["system", "light", "dark"]);
+
+function safeLocalStorageGet(key) {
+  try {
+    return window.localStorage?.getItem(key) || null;
+  } catch {
+    return null;
+  }
+}
+
+function safeLocalStorageSet(key, value) {
+  try {
+    window.localStorage?.setItem(key, value);
+  } catch {
+    // Ignore blocked storage; the theme still applies for this session.
+  }
+}
+
+function safeLocalStorageRemove(key) {
+  try {
+    window.localStorage?.removeItem(key);
+  } catch {
+    // Ignore blocked storage.
+  }
+}
+
+function applyThemePreference(preference) {
+  if (preference === "light" || preference === "dark") {
+    document.documentElement.dataset.theme = preference;
+    return;
+  }
+  delete document.documentElement.dataset.theme;
+}
+
+function initTheme() {
+  const savedTheme = safeLocalStorageGet(themeStorageKey);
+  const preference = themeChoices.has(savedTheme) ? savedTheme : "system";
+  applyThemePreference(preference);
+  if (!els.themeSelect) return;
+  els.themeSelect.value = preference;
+  els.themeSelect.addEventListener("change", () => {
+    const nextPreference = themeChoices.has(els.themeSelect.value) ? els.themeSelect.value : "system";
+    applyThemePreference(nextPreference);
+    if (nextPreference === "system") {
+      safeLocalStorageRemove(themeStorageKey);
+    } else {
+      safeLocalStorageSet(themeStorageKey, nextPreference);
+    }
+  });
+}
+
 function escapeHtml(value) {
   return String(value)
     .replaceAll("&", "&amp;")
@@ -4226,6 +4279,7 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+initTheme();
 initCommitLink();
 initRDKit().then(refreshAfterRDKitReady);
 populatePuzzleSelect();

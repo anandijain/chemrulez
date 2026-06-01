@@ -39,6 +39,7 @@ const context = {
   },
   document: {
     body: makeElement(),
+    documentElement: makeElement(),
     addEventListener() {},
     querySelector() {
       return makeElement();
