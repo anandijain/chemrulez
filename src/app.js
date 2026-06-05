@@ -373,7 +373,7 @@ async function importMolecule(rawInput) {
   } catch (error) {
     console.error(error);
     const request = parseMoleculeInput(rawInput);
-    if (request.type === "name") {
+    if (request.type !== "cid") {
       try {
         setImportStatus("Searching PubChem...");
         const options = await fetchPubChemMoleculeOptions(rawInput);
@@ -388,12 +388,14 @@ async function importMolecule(rawInput) {
           return;
         }
         setImportStatus(`No PubChem search results for "${rawInput}". Try a SMILES string or CID.`, true);
+        renderPubChemSearchFallback(rawInput);
         return;
       } catch (searchError) {
         console.error(searchError);
       }
     }
     setImportStatus(error.message || "Could not import molecule.", true);
+    renderPubChemSearchFallback(rawInput);
   }
 }
 
@@ -407,6 +409,7 @@ function parseMoleculeInput(input) {
 
 function looksLikeSmiles(input) {
   if (/\s/.test(input)) return false;
+  if (/^\d+-[a-z]/i.test(input)) return false;
   return /[#=\[\]\(\)@+\-\\\/]/.test(input) || /^[BCNOFPSIclbr0-9]+$/i.test(input);
 }
 
@@ -1444,6 +1447,10 @@ function findReactionCandidates(molecule, resolution) {
   if (reagentIds.has("pcc") || reagentIds.has("dmp") || reagentIds.has("jones_oxidation")) {
     const alcoholOxidationCandidates = alcoholOxidationCandidatesForReagents(molecule, reagentIds);
     if (alcoholOxidationCandidates.length) return alcoholOxidationCandidates;
+  }
+
+  if (reagentIds.has("hydride_reduction") && hasCarbonyl(substrateSmiles)) {
+    return carbonylReductionCandidates(molecule);
   }
 
   if (grignard && (hasCarbonyl(substrateSmiles) || isCarbonDioxide(substrateSmiles))) {
@@ -3059,7 +3066,110 @@ function carbonylizeRightAlkeneFragment(fragment) {
 }
 
 function hasCarbonyl(smiles) {
-  return stripStereo(smiles).includes("C=O") || stripStereo(smiles).includes("C(=O)");
+  try {
+    return Boolean(findFirstCarbonyl(chem.fromSmiles(smiles).graph));
+  } catch {
+    const clean = stripStereo(smiles);
+    return clean.includes("C=O") || clean.includes("C(=O)") || /C\([^)]*\)=O/.test(clean);
+  }
+}
+
+function carbonylReductionCandidates(molecule) {
+  const smiles = reactionSmilesForMolecule(molecule);
+  const productSmiles = reduceFirstCarbonylToAlcohol(smiles);
+  if (!productSmiles) {
+    return [
+      candidate({
+        id: "carbonyl_reduction_no_product",
+        label: "No carbonyl reduction product",
+        productName: molecule.displayName,
+        productSmiles: smiles,
+        bucket: "none",
+        confidence: 0.42,
+        annotations: {
+          stereochemistry: "unchanged",
+          selectivity: "none",
+          warnings: ["The app recognized a carbonyl but could not serialize the alcohol product."],
+        },
+        explanation: [
+          "NaBH4 and LiAlH4 reduce aldehydes and ketones to alcohols.",
+          "This structure was outside the current serializer's carbonyl-reduction subset.",
+        ],
+      }),
+    ];
+  }
+
+  const kind = carbonylKind(smiles);
+  return [
+    candidate({
+      id: "carbonyl_hydride_reduction",
+      label: `${kind === "ketone" ? "Secondary" : "Primary"} alcohol`,
+      productName: `${molecule.displayName} reduced alcohol`,
+      productSmiles,
+      bucket: "high",
+      confidence: 0.84,
+      annotations: {
+        stereochemistry: kind === "ketone" ? "racemic if new stereocenter forms" : "not stereospecific",
+        selectivity: "single",
+        mechanism: "hydride reduction",
+        warnings: kind === "ketone" ? ["New stereocenters from planar ketones are not yet encoded as racemic pairs."] : [],
+      },
+      explanation: [
+        "NaBH4 and LiAlH4 deliver hydride to aldehydes and ketones.",
+        "Acid/protic workup gives the alcohol.",
+        kind === "ketone"
+          ? "Ketones reduce to secondary alcohols."
+          : "Aldehydes reduce to primary alcohols.",
+      ],
+    }),
+  ];
+}
+
+function carbonylKind(smiles) {
+  try {
+    const parsed = chem.fromSmiles(smiles);
+    const carbonyl = findFirstCarbonyl(parsed.graph);
+    if (!carbonyl) return "aldehyde";
+    const carbonNeighbors = graphNeighbors(parsed.graph, carbonyl.carbon)
+      .filter((neighbor) => neighbor.atomIndex !== carbonyl.oxygen)
+      .filter((neighbor) => atomElement(parsed.graph.atoms[neighbor.atomIndex]) === "C");
+    return carbonNeighbors.length >= 2 ? "ketone" : "aldehyde";
+  } catch {
+    return /\(=O\)/.test(smiles) ? "ketone" : "aldehyde";
+  }
+}
+
+function reduceFirstCarbonylToAlcohol(smiles) {
+  try {
+    const parsed = chem.fromSmiles(smiles);
+    const carbonyl = findFirstCarbonyl(parsed.graph);
+    if (!carbonyl) return null;
+    const product = cloneGraph(parsed.graph);
+    const bond = graphBondBetween(product, carbonyl.carbon, carbonyl.oxygen);
+    if (!bond) return null;
+    bond.order = 1;
+    product.atoms[carbonyl.oxygen].token = "O";
+    product.root = bestRootForProduct(product, carbonyl.carbon);
+    return smilesFromGraph(product);
+  } catch {
+    const clean = stripStereo(smiles);
+    if (clean.includes("C(=O)")) return clean.replace("C(=O)", "C(O)");
+    if (clean.endsWith("C=O")) return `${clean.slice(0, -3)}CO`;
+    if (clean === "C=O") return "CO";
+    if (clean.includes("C=O")) return clean.replace("C=O", "CO");
+  }
+  return null;
+}
+
+function findFirstCarbonyl(graph) {
+  for (const bond of graph.bonds) {
+    if (bond.order !== 2) continue;
+    const from = graph.atoms[bond.from];
+    const to = graph.atoms[bond.to];
+    if (atomElement(from) === "C" && atomElement(to) === "O") return { carbon: bond.from, oxygen: bond.to };
+    if (atomElement(from) === "O" && atomElement(to) === "C") return { carbon: bond.to, oxygen: bond.from };
+  }
+  return null;
 }
 
 function isCarbonDioxide(smiles) {
@@ -4081,6 +4191,11 @@ function renderCandidates(candidates, resolution) {
   els.results.querySelectorAll("[data-candidate]").forEach((button) => {
     button.addEventListener("click", () => {
       const candidate = normalizeCandidate(candidates[Number(button.dataset.candidate)]);
+      if (candidate.productSmiles.includes(".")) {
+        renderFragmentOptions(candidate, resolution);
+        setImportStatus("Choose which fragment to continue with.");
+        return;
+      }
       const product = {
         id: `derived:${candidate.id}:${Date.now()}`,
         cid: null,
@@ -4107,6 +4222,57 @@ function renderCandidates(candidates, resolution) {
           ? `Solved ${state.puzzle.title}.`
           : puzzleProgressMessage(candidate),
       );
+    });
+  });
+
+  queueMicrotask(() => firstEnabledCandidateButton()?.focus({ preventScroll: true }));
+}
+
+function renderFragmentOptions(candidate, resolution) {
+  const fragments = candidate.productSmiles
+    .split(".")
+    .map((fragment) => fragment.trim())
+    .filter(Boolean);
+  setResultsHtml(fragments
+    .map((fragment, index) => `
+      <article class="candidate molecule-option">
+        <img src="${imageUrlForSmiles(fragment)}" alt="Product fragment ${index + 1}">
+        <div>
+          <span class="tag mixture">Fragment ${index + 1}</span>
+          <h3>${escapeHtml(candidate.label)} fragment</h3>
+          <p><code>${escapeHtml(fragment)}</code></p>
+          <p><a href="${pubChemUrlForSmiles(fragment)}" target="_blank" rel="noreferrer">Open in PubChem</a></p>
+        </div>
+        <button data-fragment-option="${index}" aria-label="Use fragment ${index + 1}">Use Fragment</button>
+      </article>
+    `)
+    .join(""));
+
+  els.results.querySelectorAll("[data-fragment-option]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const fragment = fragments[Number(button.dataset.fragmentOption)];
+      const product = {
+        id: `derived:${candidate.id}:fragment:${button.dataset.fragmentOption}:${Date.now()}`,
+        cid: null,
+        input: fragment,
+        inputType: "smiles",
+        displayName: `${candidate.productName} fragment ${Number(button.dataset.fragmentOption) + 1}`,
+        canonicalSmiles: fragment,
+        isomericSmiles: fragment,
+        structureKey: fragment,
+        formula: null,
+        molecularWeight: null,
+        imageUrl: imageUrlForSmiles(fragment),
+        pubchemUrl: pubChemUrlForSmiles(fragment),
+      };
+      selectMolecule(product, `${formatReagentLabel(resolution)} -> ${candidate.label} fragment ${Number(button.dataset.fragmentOption) + 1}`, {
+        ruleId: `${candidate.id}:fragment`,
+        annotations: candidate.annotations,
+      });
+      clearResults();
+      els.reagentInput.value = "";
+      els.resolvedReagent.innerHTML = "";
+      setImportStatus(`Continuing with fragment ${Number(button.dataset.fragmentOption) + 1}.`);
     });
   });
 
@@ -4149,6 +4315,22 @@ function renderMoleculeOptions(molecules) {
   queueMicrotask(() => firstEnabledCandidateButton()?.focus({ preventScroll: true }));
 }
 
+function renderPubChemSearchFallback(rawInput) {
+  const url = `https://pubchem.ncbi.nlm.nih.gov/#query=${encodeURIComponent(rawInput)}`;
+  setResultsHtml(`
+    <article class="candidate molecule-option">
+      <div></div>
+      <div>
+        <span class="tag low">Search</span>
+        <h3>No molecule imported</h3>
+        <p>PubChem did not return a selectable structure inside chemrulez.</p>
+        <p><a href="${url}" target="_blank" rel="noreferrer">Search PubChem for "${escapeHtml(rawInput)}"</a></p>
+      </div>
+      <a class="button-link" href="${url}" target="_blank" rel="noreferrer">Open</a>
+    </article>
+  `);
+}
+
 function reactionAnnotationHtml(annotations) {
   const normalized = normalizeReactionAnnotations(annotations);
   const pills = [
@@ -4177,7 +4359,7 @@ function clearResults() {
 }
 
 function enabledCandidateButtons() {
-  return [...els.results.querySelectorAll("[data-candidate]:not(:disabled), [data-molecule-option]:not(:disabled)")];
+  return [...els.results.querySelectorAll("[data-candidate]:not(:disabled), [data-molecule-option]:not(:disabled), [data-fragment-option]:not(:disabled)")];
 }
 
 function firstEnabledCandidateButton() {

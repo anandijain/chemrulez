@@ -246,6 +246,23 @@ export const reagentAliases = [
     aliases: ["jones", "jones oxidation", "cr o3", "cro3", "na2cr2o7", "dichromate", "chromic acid", "kmno4 heat", "hot kmno4"],
   },
   {
+    id: "hydride_reduction",
+    canonical: "NaBH4 or LiAlH4",
+    kind: "carbonyl hydride reduction",
+    aliases: [
+      "nabh4",
+      "nab h4",
+      "sodium borohydride",
+      "lialh4",
+      "liah",
+      "lithium aluminum hydride",
+      "lithium aluminium hydride",
+      "lah",
+      "1 lialh4 2 h3o+",
+      "1 nabh4 2 h3o+",
+    ],
+  },
+  {
     id: "grignard_workup",
     canonical: "RMgX, H3O+",
     kind: "Grignard addition",

@@ -105,6 +105,23 @@ button {
   padding: 0 16px;
 }
 
+.button-link {
+  align-items: center;
+  background: var(--accent);
+  border-radius: 6px;
+  color: white;
+  display: inline-flex;
+  font-weight: 700;
+  justify-content: center;
+  min-height: 42px;
+  padding: 0 16px;
+  text-decoration: none;
+}
+
+.button-link:hover {
+  background: var(--accent-dark);
+}
+
 button:hover {
   background: var(--accent-dark);
 }

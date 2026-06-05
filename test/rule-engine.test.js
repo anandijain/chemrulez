@@ -139,6 +139,7 @@ const Br2 = reagent("br2", "Br2", "halogenation");
 const mcpba = reagent("mcpba", "mCPBA", "epoxidation");
 const OsO4 = reagent("oso4", "OsO4", "syn dihydroxylation");
 const ozone = reagent("ozonolysis_reductive", "1. O3  2. DMS", "reductive ozonolysis");
+const hydrideReduction = reagent("hydride_reduction", "NaBH4", "carbonyl hydride reduction");
 const methylGrignard = reagent("local_grignard_methyl", "CH3MgBr, H3O+", "Grignard addition");
 methylGrignard.organoSmiles = "C";
 const phenylGrignard = reagent("local_grignard_phenyl", "PhMgBr, H3O+", "Grignard addition");
@@ -907,6 +908,7 @@ const tests = [
   {
     name: "molecule name variants normalize numeric and spoken locants for PubChem",
     run() {
+      assert.equal(context.parseMoleculeInput("1-hexene").type, "name");
       assert.ok(context.nameVariants("1 hexene").includes("1-hexene"));
       assert.ok(context.nameVariants("one hexene").includes("1-hexene"));
     },
@@ -932,6 +934,18 @@ const tests = [
       const [candidate] = productsFor("CC=O", methylGrignard);
       assert.equal(candidate.label, "Alcohol after Grignard addition and acid workup");
       assert.equal(candidate.productSmiles, "CC(O)(C)");
+    },
+  },
+  {
+    name: "hydride reagents reduce aldehydes and ketones to alcohols",
+    run() {
+      const [aldehyde] = productsFor("CC=O", hydrideReduction);
+      assert.equal(aldehyde.label, "Primary alcohol");
+      assert.equal(aldehyde.productSmiles, "CCO");
+
+      const [ketone] = productsFor("CC(C)=O", hydrideReduction);
+      assert.equal(ketone.label, "Secondary alcohol");
+      assert.equal(ketone.productSmiles, "CC(O)C");
     },
   },
   {
