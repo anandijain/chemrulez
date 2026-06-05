@@ -188,6 +188,27 @@ const localMolecules = [
     molecularWeight: "78.50",
   },
   {
+    keys: ["methylamine", "methanamine"],
+    displayName: "Methylamine",
+    canonicalSmiles: "CN",
+    formula: "CH5N",
+    molecularWeight: "31.06",
+  },
+  {
+    keys: ["dimethylamine", "n methylmethanamine"],
+    displayName: "Dimethylamine",
+    canonicalSmiles: "CNC",
+    formula: "C2H7N",
+    molecularWeight: "45.08",
+  },
+  {
+    keys: ["pyrrolidine"],
+    displayName: "Pyrrolidine",
+    canonicalSmiles: "C1CCNC1",
+    formula: "C4H9N",
+    molecularWeight: "71.12",
+  },
+  {
     keys: ["phenethylbromide", "2phenylethylbromide", "1bromo2phenylethane", "bromoethylbenzene"],
     displayName: "Phenethyl bromide",
     canonicalSmiles: "c1ccccc1CCBr",
@@ -1249,11 +1270,11 @@ async function resolveReagentInput(input) {
   const equivalents = parseEquivalents(raw);
   const clean = stripEquivalents(raw);
   const reagents = [];
-  const sodiumAmide = resolveKnownReagent(clean);
-  if (sodiumAmide) reagents.push(sodiumAmide);
+  for (const knownReagent of resolveKnownReagents(clean)) {
+    if (!reagents.some((reagent) => reagent.id === knownReagent.id)) reagents.push(knownReagent);
+  }
 
-  const structuralText = extractStructuralReagentText(clean);
-  if (structuralText) {
+  for (const structuralText of extractStructuralReagentTexts(clean)) {
     const structuralReagent = await resolveStructuralReagent(structuralText);
     if (structuralReagent) reagents.push(structuralReagent);
   }
@@ -1286,21 +1307,26 @@ function stripEquivalents(input) {
 }
 
 function resolveKnownReagent(input) {
+  return resolveKnownReagents(input)[0] || null;
+}
+
+function resolveKnownReagents(input) {
   const normalized = normalizeText(input);
   const exact = reagentAliases
     .map((reagent) => ({
       reagent,
-      matchedLength: Math.max(
-        0,
-        ...reagent.aliases
-          .map((alias) => normalizeText(alias))
-          .filter((alias) => normalized.includes(alias))
-          .map((alias) => alias.length),
-      ),
+      alias: longestMatchingAlias(reagent, normalized),
     }))
-    .filter((match) => match.matchedLength > 0)
-    .sort((a, b) => b.matchedLength - a.matchedLength)[0];
-  if (exact) return exact.reagent;
+    .filter((match) => match.alias)
+    .filter((match, index, matches) => {
+      return !matches.some((other, otherIndex) => {
+        return otherIndex !== index
+          && other.alias.includes(match.alias)
+          && other.alias.length > match.alias.length;
+      });
+    })
+    .sort((a, b) => normalized.indexOf(a.alias) - normalized.indexOf(b.alias));
+  if (exact.length) return exact.map((match) => match.reagent);
 
   const best = reagentAliases
     .map((reagent) => ({
@@ -1309,7 +1335,14 @@ function resolveKnownReagent(input) {
     }))
     .sort((a, b) => b.score - a.score)[0];
 
-  return best?.score > 0.72 ? best.reagent : null;
+  return best?.score > 0.72 ? [best.reagent] : [];
+}
+
+function longestMatchingAlias(reagent, normalizedInput) {
+  return reagent.aliases
+    .map((alias) => normalizeText(alias))
+    .filter((alias) => normalizedInput.includes(alias))
+    .sort((a, b) => b.length - a.length)[0] || "";
 }
 
 function reagentRoles(reagent) {
@@ -1333,17 +1366,21 @@ function reagentIsCarbonylPartner(reagent) {
   return Boolean(smiles && (hasCarbonyl(smiles) || isCarbonDioxide(smiles)));
 }
 
-function extractStructuralReagentText(input) {
+function extractStructuralReagentTexts(input) {
   const parts = input
-    .split(/\b(?:then|followed by|and then|plus|with)\b|[,;]/i)
+    .split(/\b(?:then|followed by|and then|plus|with)\b|[,;+]|\d+\./i)
     .map((part) => removeKnownReagentWords(part).trim())
     .filter(Boolean);
 
-  const structural = parts.find((part) => !resolveKnownReagent(part));
-  if (structural) return structural;
+  const structural = parts.filter((part) => !resolveKnownReagent(part));
+  if (structural.length) return structural;
 
   const stripped = removeKnownReagentWords(input).trim();
-  return stripped === input.trim() ? stripped : "";
+  return stripped === input.trim() && stripped ? [stripped] : [];
+}
+
+function extractStructuralReagentText(input) {
+  return extractStructuralReagentTexts(input)[0] || "";
 }
 
 function removeKnownReagentWords(input) {
@@ -1361,6 +1398,8 @@ async function resolveStructuralReagent(input) {
     if (grignard) return grignard;
     const acidChloride = classifyAcidChloride(molecule, input);
     if (acidChloride) return acidChloride;
+    const amine = classifyAmine(molecule, input);
+    if (amine) return amine;
     const alkylHalide = classifyAlkylHalide(molecule, input);
     if (alkylHalide) return alkylHalide;
     return {
@@ -1446,6 +1485,7 @@ function findReactionCandidates(molecule, resolution) {
   const alkylHalide = reagents.find((reagent) => reagent.kind.includes("alkyl halide"));
   const grignard = reagents.find((reagent) => reagent.kind.includes("Grignard"));
   const acidChloride = reagents.find((reagent) => reagent.kind === "acid chloride acyl donor");
+  const structuralAmine = reagents.find((reagent) => reagent.kind === "primary amine imine donor" || reagent.kind === "secondary amine enamine donor");
   const structuralCarbonyl = reagents.find((reagent) => reagentIsCarbonylPartner(reagent));
   const nucleophile = reagents.find((reagent) => reagentHasRole(reagent, "nucleophile"));
   const reagentIds = new Set(reagents.map((reagent) => reagent.id));
@@ -1453,6 +1493,30 @@ function findReactionCandidates(molecule, resolution) {
   const baseStrength = baseStrengthForReagents(reagents);
   const substrateAlkylHalide = classifyAlkylHalide(molecule, molecule.displayName || molecule.canonicalSmiles);
   const substrateGrignard = classifyGrignard(molecule, molecule.displayName || molecule.canonicalSmiles);
+
+  if (substrateAlkylHalide && reagentIds.has("mg_ether") && structuralCarbonyl) {
+    const grignardProduct = alkylHalideToGrignard(substrateSmiles);
+    const substrateGrignardReagent = grignardProduct
+      ? classifyGrignard(
+        {
+          displayName: `${molecule.displayName} Grignard reagent`,
+          canonicalSmiles: grignardProduct,
+          structureKey: grignardProduct,
+        },
+        `${molecule.displayName} Grignard reagent`,
+      )
+      : null;
+    if (substrateGrignardReagent) {
+      return grignardReactionCandidates(structuralCarbonyl.molecule, substrateGrignardReagent).map((candidate) => ({
+        ...candidate,
+        id: `one_pot_grignard_${candidate.id}`,
+        explanation: [
+          "The input contains Grignard formation conditions and a carbonyl co-reactant, so the app treats it as a one-pot sequence.",
+          ...candidate.explanation,
+        ],
+      }));
+    }
+  }
 
   if (substrateAlkylHalide && reagentIds.has("mg_ether")) {
     return grignardFormationCandidates(molecule, substrateAlkylHalide);
@@ -1471,6 +1535,10 @@ function findReactionCandidates(molecule, resolution) {
 
   if (reagentIds.has("friedel_crafts_acylation") && acidChloride) {
     return friedelCraftsAcylationCandidates(molecule, acidChloride);
+  }
+
+  if (structuralAmine && hasCarbonyl(substrateSmiles)) {
+    return carbonylAmineCondensationCandidates(molecule, structuralAmine);
   }
 
   if (reagentIds.has("pbr3") || reagentIds.has("socl2") || reagentIds.has("tosyl_chloride")) {
@@ -2194,6 +2262,43 @@ function acidChlorideAcylSmiles(graph, acidChloride) {
   const product = cloneGraph(graph);
   removeGraphBond(product, acidChloride.carbonylCarbon, acidChloride.chloride);
   return smilesFromConnectedComponent(product, acidChloride.carbonylCarbon, new Set([acidChloride.chloride]));
+}
+
+function classifyAmine(molecule, input) {
+  let parsed;
+  try {
+    parsed = chem.fromSmiles(reactionSmilesForMolecule(molecule));
+  } catch {
+    return null;
+  }
+
+  const amine = findFirstAmine(parsed.graph);
+  if (!amine || amine.carbonNeighbors < 1 || amine.carbonNeighbors > 2) return null;
+
+  return {
+    id: `amine_${molecule.cid || normalizeText(input)}`,
+    canonical: molecule.displayName || input,
+    kind: amine.carbonNeighbors === 1 ? "primary amine imine donor" : "secondary amine enamine donor",
+    molecule,
+    amineClass: amine.carbonNeighbors === 1 ? "primary" : "secondary",
+    nSubstituents: amine.fragments,
+  };
+}
+
+function findFirstAmine(graph) {
+  for (const atom of graph.atoms) {
+    if (atomElement(atom) !== "N") continue;
+    const carbonNeighbors = graphNeighbors(graph, atom.id)
+      .filter((neighbor) => neighbor.bond.order === 1)
+      .filter((neighbor) => atomElement(graph.atoms[neighbor.atomIndex]) === "C");
+    if (!carbonNeighbors.length || carbonNeighbors.length > 2) continue;
+    return {
+      nitrogen: atom.id,
+      carbonNeighbors: carbonNeighbors.length,
+      fragments: carbonNeighbors.map((neighbor) => smilesFromConnectedComponent(graph, neighbor.atomIndex, new Set([atom.id]))),
+    };
+  }
+  return null;
 }
 
 function classifyAlkylHalideFromGraph(molecule, input) {
@@ -3297,6 +3402,95 @@ function noCarbonylReductionCandidate(molecule, reagent = { canonical: "NaBH4/Li
       ],
     }),
   ];
+}
+
+function carbonylAmineCondensationCandidates(molecule, amine) {
+  const smiles = reactionSmilesForMolecule(molecule);
+  const productSmiles = amine.amineClass === "primary"
+    ? imineFromCarbonyl(smiles, amine)
+    : enamineFromCarbonyl(smiles, amine);
+  const label = amine.amineClass === "primary" ? "Imine" : "Enamine";
+  const mechanism = amine.amineClass === "primary" ? "imine formation" : "enamine formation";
+
+  if (!productSmiles) {
+    return [
+      candidate({
+        id: `${mechanism.replace(/\s+/g, "_")}_no_product`,
+        label: `No ${label.toLowerCase()} product`,
+        productName: molecule.displayName,
+        productSmiles: smiles,
+        bucket: "none",
+        confidence: 0.5,
+        annotations: {
+          stereochemistry: "not-modeled",
+          selectivity: "none",
+          warnings: [`${label} formation is only implemented for simple aldehydes and ketones.`],
+        },
+        explanation: [
+          "Aldehydes and ketones condense with amines under mildly acidic dehydrating conditions.",
+          "Primary amines give imines; secondary amines give enamines when an alpha hydrogen is available.",
+        ],
+      }),
+    ];
+  }
+
+  return [
+    candidate({
+      id: `${mechanism.replace(/\s+/g, "_")}_${amine.id}`,
+      label,
+      productName: `${molecule.displayName} ${label.toLowerCase()}`,
+      productSmiles,
+      bucket: "medium",
+      confidence: 0.66,
+      annotations: {
+        stereochemistry: "not-modeled",
+        selectivity: amine.amineClass === "primary" ? "imine/E-Z not modeled" : "enamine regioselectivity simplified",
+        mechanism,
+        warnings: ["Use this as exam-arrow-level functional group information; full imine/enamine stereochemistry and regiochemistry are not encoded yet."],
+      },
+      explanation: [
+        `${amine.canonical} is treated as a ${amine.amineClass} amine co-reagent.`,
+        amine.amineClass === "primary"
+          ? "Primary amines condense with aldehydes and ketones to form imines after loss of water."
+          : "Secondary amines condense with aldehydes and ketones that have alpha hydrogens to form enamines after loss of water.",
+        "Mild acid catalysis and water removal are implicit in this first-pass rule.",
+      ],
+    }),
+  ];
+}
+
+function imineFromCarbonyl(smiles, amine) {
+  const clean = stripStereo(smiles);
+  const nSubstituent = amine.nSubstituents?.[0] || "C";
+  if (clean === "C=O") return `C=N${nSubstituent}`;
+  if (clean.includes("C(=O)")) return clean.replace("C(=O)", `C(=N${nSubstituent})`);
+  if (clean.includes("C=O")) return clean.replace("C=O", `C=N${nSubstituent}`);
+  if (clean.includes("=O")) return clean.replace("=O", `=N${nSubstituent}`);
+  return null;
+}
+
+function enamineFromCarbonyl(smiles, amine) {
+  if (!carbonylHasAlphaHydrogen(smiles)) return null;
+  const clean = stripStereo(smiles);
+  const [first = "C", second = "C"] = amine.nSubstituents || [];
+  const amineGroup = `N(${first})${second}`;
+  if (clean === "CC=O") return `C=C${amineGroup}`;
+  if (clean.endsWith("C=O")) return `${clean.slice(0, -3)}C=C${amineGroup}`;
+  if (clean === "CC(C)=O" || clean === "CC(=O)C") return `C=C(${amineGroup})C`;
+  return null;
+}
+
+function carbonylHasAlphaHydrogen(smiles) {
+  try {
+    const parsed = chem.fromSmiles(smiles);
+    const carbonyl = findFirstCarbonyl(parsed.graph);
+    if (!carbonyl) return false;
+    return graphNeighbors(parsed.graph, carbonyl.carbon)
+      .filter((neighbor) => atomElement(parsed.graph.atoms[neighbor.atomIndex]) === "C")
+      .some((neighbor) => implicitHydrogenCount(parsed.graph, neighbor.atomIndex) > 0);
+  } catch {
+    return /CC.*=O|C.*C\(=O\)/.test(stripStereo(smiles));
+  }
 }
 
 function carbonylKind(smiles) {

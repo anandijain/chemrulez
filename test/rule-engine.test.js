@@ -145,6 +145,12 @@ const DIBAL = reagent("dibal_ester_reduction", "1. DIBAL-H, toluene, -78 C  2. H
 const AlCl3 = reagent("friedel_crafts_acylation", "AlCl3", "Friedel-Crafts acylation conditions");
 const acetylChloride = reagent("acid_chloride_acetyl_chloride", "Acetyl chloride", "acid chloride acyl donor");
 acetylChloride.molecule = { displayName: "Acetyl chloride", canonicalSmiles: "CC(=O)Cl" };
+const methylamine = reagent("amine_methylamine", "Methylamine", "primary amine imine donor");
+methylamine.amineClass = "primary";
+methylamine.nSubstituents = ["C"];
+const dimethylamine = reagent("amine_dimethylamine", "Dimethylamine", "secondary amine enamine donor");
+dimethylamine.amineClass = "secondary";
+dimethylamine.nSubstituents = ["C", "C"];
 const methylGrignard = reagent("local_grignard_methyl", "CH3MgBr, H3O+", "Grignard addition");
 methylGrignard.organoSmiles = "C";
 const phenylGrignard = reagent("local_grignard_phenyl", "PhMgBr, H3O+", "Grignard addition");
@@ -653,6 +659,22 @@ const tests = [
     },
   },
   {
+    name: "arrow-style Grignard inputs keep fixed reagents and structural co-reagents",
+    async run() {
+      const resolution = await context.resolveReagentInput("1. Mg, Et2O 2. formaldehyde 3. H3O+");
+      assert.ok(resolution.reagents.some((reagent) => reagent.id === "mg_ether"));
+      assert.ok(resolution.reagents.some((reagent) => reagent.id === "acid_hydration"));
+      assert.ok(resolution.reagents.some((reagent) => reagent.molecule?.canonicalSmiles === "C=O"));
+
+      const [alcohol] = context.findReactionCandidates(
+        context.withChemMetadata(context.localMoleculeFromInput("ethyl bromide")),
+        resolution,
+      );
+      assert.equal(alcohol.label, "Alcohol after Grignard addition and acid workup");
+      assert.equal(alcohol.productSmiles, "C(O)(CC)");
+    },
+  },
+  {
     name: "PBr3 and SOCl2 convert alcohols into alkyl halides",
     run() {
       const [bromide] = productsFor("CCO", PBr3);
@@ -969,6 +991,24 @@ const tests = [
     },
   },
   {
+    name: "primary and secondary amines give imine and enamine information",
+    async run() {
+      const primary = await context.resolveStructuralReagent("methylamine");
+      assert.equal(primary.kind, "primary amine imine donor");
+      const [imine] = productsFor("CC=O", methylamine);
+      assert.equal(imine.label, "Imine");
+      assert.equal(imine.productSmiles, "CC=NC");
+      assert.equal(imine.annotations.mechanism, "imine formation");
+
+      const secondary = await context.resolveStructuralReagent("dimethylamine");
+      assert.equal(secondary.kind, "secondary amine enamine donor");
+      const [enamine] = productsFor("CC=O", dimethylamine);
+      assert.equal(enamine.label, "Enamine");
+      assert.equal(enamine.productSmiles, "C=CN(C)C");
+      assert.equal(enamine.annotations.mechanism, "enamine formation");
+    },
+  },
+  {
     name: "DIBAL-H selectively reduces esters to aldehyde fragments",
     run() {
       assert.equal(context.resolveKnownReagent("DIBAL-H").id, "dibal_ester_reduction");
@@ -995,6 +1035,21 @@ const tests = [
       assert.equal(candidate.label, "Friedel-Crafts acylation product");
       assert.equal(candidate.productSmiles, "c1c(C(=O)C)cccc1");
       assert.equal(candidate.annotations.mechanism, "Friedel-Crafts acylation");
+    },
+  },
+  {
+    name: "Friedel-Crafts app input keeps AlCl3 and acid chloride",
+    async run() {
+      const resolution = await context.resolveReagentInput("AlCl3 + acetyl chloride");
+      assert.ok(resolution.reagents.some((reagent) => reagent.id === "friedel_crafts_acylation"));
+      assert.ok(resolution.reagents.some((reagent) => reagent.kind === "acid chloride acyl donor"));
+
+      const [candidate] = context.findReactionCandidates(
+        context.withChemMetadata(context.localMoleculeFromInput("benzene")),
+        resolution,
+      );
+      assert.equal(candidate.label, "Friedel-Crafts acylation product");
+      assert.equal(candidate.productSmiles, "c1c(C(=O)C)cccc1");
     },
   },
   {
