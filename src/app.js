@@ -1588,10 +1588,10 @@ function findReactionCandidates(molecule, resolution) {
     if (alcoholActivationCandidates.length) return alcoholActivationCandidates;
   }
 
-  if (reagentIds.has("pcc") || reagentIds.has("dmp") || reagentIds.has("jones_oxidation")) {
+  if (hasAlcoholOxidationCondition(reagentIds)) {
     const alcoholOxidationCandidates = alcoholOxidationCandidatesForReagents(molecule, reagentIds);
     if (alcoholOxidationCandidates.length) return alcoholOxidationCandidates;
-    if (reagentIds.has("jones_oxidation")) {
+    if (hasStrongOxidationCondition(reagentIds)) {
       const aldehydeOxidationCandidates = aldehydeOxidationCandidatesForReagents(molecule);
       if (aldehydeOxidationCandidates.length) return aldehydeOxidationCandidates;
     } else {
@@ -4251,7 +4251,7 @@ function alcoholTosylationCandidates(molecule) {
 }
 
 function alcoholOxidationCandidatesForReagents(molecule, reagentIds) {
-  const strong = reagentIds.has("jones_oxidation");
+  const strong = hasStrongOxidationCondition(reagentIds);
   const product = oxidizeFirstAlcohol(reactionSmilesForMolecule(molecule), { strong });
   if (!product) return [];
   if (product.blocked) {
@@ -4301,6 +4301,17 @@ function alcoholOxidationCandidatesForReagents(molecule, reagentIds) {
       ],
     }),
   ];
+}
+
+function hasAlcoholOxidationCondition(reagentIds) {
+  return reagentIds.has("pcc")
+    || reagentIds.has("dmp")
+    || reagentIds.has("swern_oxidation")
+    || hasStrongOxidationCondition(reagentIds);
+}
+
+function hasStrongOxidationCondition(reagentIds) {
+  return reagentIds.has("jones_oxidation") || reagentIds.has("permanganate_oxidation");
 }
 
 function noAlcoholCandidate(molecule) {

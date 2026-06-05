@@ -47,7 +47,7 @@ export const reagentAliases = [
   },
   {
     id: "dissolving_metal",
-    canonical: "Na, NH3",
+    canonical: "Na, NH3(l)",
     kind: "anti partial alkyne reduction",
     aliases: [
       "na nh3",
@@ -73,7 +73,7 @@ export const reagentAliases = [
   },
   {
     id: "alkyne_hydroboration",
-    canonical: "1. R2BH  2. H2O2, NaOH",
+    canonical: "1. (sia)2BH  2. H2O2, NaOH",
     kind: "alkyne hydroboration-oxidation",
     aliases: ["sia2bh", "9-bbn", "r2bh", "h2o2 naoh", "alkyne hydroboration", "hydroboration oxidation alkyne"],
   },
@@ -91,13 +91,13 @@ export const reagentAliases = [
   },
   {
     id: "acid_hydration",
-    canonical: "H3O+",
+    canonical: "H2SO4, H2O",
     kind: "acid-catalyzed alkene hydration",
     aliases: ["h3o+", "h2so4 h2o", "h2o h2so4", "acid hydration", "aqueous acid"],
   },
   {
     id: "hydroxide",
-    canonical: "NaOH, H2O",
+    canonical: "NaOH",
     kind: "hydroxide nucleophile",
     roles: ["base", "nucleophile"],
     baseStrength: "moderate",
@@ -114,7 +114,7 @@ export const reagentAliases = [
   },
   {
     id: "e2_base",
-    canonical: "NaOEt, heat",
+    canonical: "NaOEt, EtOH, heat",
     kind: "strong base E2 conditions",
     roles: ["base", "elimination_base"],
     baseStrength: "strong",
@@ -136,7 +136,7 @@ export const reagentAliases = [
   },
   {
     id: "bulky_e2_base",
-    canonical: "t-BuOK, heat",
+    canonical: "t-BuOK, t-BuOH, heat",
     kind: "bulky base E2 conditions",
     roles: ["base", "elimination_base", "bulky_base"],
     baseStrength: "strong",
@@ -182,13 +182,13 @@ export const reagentAliases = [
   },
   {
     id: "alkene_hydroboration",
-    canonical: "1. BH3  2. H2O2, NaOH",
+    canonical: "1. BH3, THF  2. H2O2, NaOH",
     kind: "alkene hydroboration-oxidation",
     aliases: ["bh3", "bh3 thf", "h2o2 naoh alkene", "alkene hydroboration", "hydroboration oxidation"],
   },
   {
     id: "br2",
-    canonical: "Br2",
+    canonical: "Br2, CCl4",
     kind: "halogenation",
     aliases: ["br2", "bromine", "br2 ccl4"],
   },
@@ -200,7 +200,7 @@ export const reagentAliases = [
   },
   {
     id: "oso4",
-    canonical: "OsO4",
+    canonical: "1. OsO4  2. NaHSO3, H2O",
     kind: "syn dihydroxylation",
     aliases: ["oso4", "osmium tetroxide", "kmno4 cold", "cold kmno4"],
   },
@@ -230,25 +230,31 @@ export const reagentAliases = [
   },
   {
     id: "socl2",
-    canonical: "SOCl2",
+    canonical: "SOCl2, pyridine",
     kind: "alcohol to alkyl chloride",
     aliases: ["socl2", "thionyl chloride", "socl2 pyridine"],
   },
   {
     id: "pcc",
-    canonical: "PCC",
+    canonical: "PCC, CH2Cl2",
     kind: "mild alcohol oxidation",
     aliases: ["pcc", "pyridinium chlorochromate"],
   },
   {
     id: "dmp",
-    canonical: "DMP",
+    canonical: "DMP, CH2Cl2",
     kind: "mild alcohol oxidation",
-    aliases: ["dmp", "dess martin", "dess-martin", "dess martin periodinane", "swern", "swern oxidation", "dmso oxalyl chloride"],
+    aliases: ["dmp", "dess martin", "dess-martin", "dess martin periodinane"],
+  },
+  {
+    id: "swern_oxidation",
+    canonical: "1. (COCl)2, DMSO  2. Et3N",
+    kind: "mild alcohol oxidation",
+    aliases: ["swern", "swern oxidation", "dmso oxalyl chloride", "oxalyl chloride dmso et3n"],
   },
   {
     id: "jones_oxidation",
-    canonical: "Na2Cr2O7, H2SO4",
+    canonical: "Na2Cr2O7, H2SO4, H2O",
     kind: "strong alcohol oxidation",
     aliases: [
       "jones",
@@ -258,6 +264,13 @@ export const reagentAliases = [
       "na2cr2o7",
       "dichromate",
       "chromic acid",
+    ],
+  },
+  {
+    id: "permanganate_oxidation",
+    canonical: "KMnO4, H3O+, heat",
+    kind: "strong alcohol oxidation",
+    aliases: [
       "kmno4 heat",
       "hot kmno4",
       "kmno4 acid",
@@ -269,7 +282,7 @@ export const reagentAliases = [
   },
   {
     id: "sodium_borohydride",
-    canonical: "NaBH4",
+    canonical: "1. NaBH4  2. H3O+",
     kind: "mild carbonyl hydride reduction",
     aliases: ["nabh4", "nab h4", "sodium borohydride", "1 nabh4 2 h3o+"],
   },

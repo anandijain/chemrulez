@@ -30,6 +30,9 @@ Debug one pathway from the terminal:
 node scripts/pathway.js "3,3-dimethyl-1-butene" "HBr"
 ```
 
+Supported exam-style reagent labels are tracked in
+[docs/reagent-arrow-labels.md](docs/reagent-arrow-labels.md).
+
 ## What works now
 
 - Import molecules by common name, SMILES, PubChem CID, or PubChem compound URL.

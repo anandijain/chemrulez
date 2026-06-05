@@ -165,7 +165,7 @@ const TsCl = reagent("tosyl_chloride", "TsCl, pyridine", "alcohol tosylation");
 const PCC = reagent("pcc", "PCC", "mild alcohol oxidation");
 const DMP = reagent("dmp", "DMP", "mild alcohol oxidation");
 const Jones = reagent("jones_oxidation", "Na2Cr2O7, H2SO4", "strong alcohol oxidation");
-const hotPermanganate = reagent("jones_oxidation", "KMnO4, heat", "strong alcohol oxidation");
+const hotPermanganate = reagent("permanganate_oxidation", "KMnO4, H3O+, heat", "strong alcohol oxidation");
 const formaldehydeReagent = reagent("structural_formaldehyde", "Formaldehyde", "known structure");
 formaldehydeReagent.molecule = { displayName: "Formaldehyde", canonicalSmiles: "C=O" };
 
@@ -1010,7 +1010,7 @@ const tests = [
     run() {
       assert.equal(context.resolveKnownReagent("NaBH4").id, "sodium_borohydride");
       assert.equal(context.resolveKnownReagent("lithium aluminum hydride").id, "lithium_aluminum_hydride");
-      assert.equal(context.resolveKnownReagent("NaBH4").canonical, "NaBH4");
+      assert.equal(context.resolveKnownReagent("NaBH4").canonical, "1. NaBH4  2. H3O+");
       assert.equal(context.resolveKnownReagent("lithium aluminum hydride").canonical, "1. LiAlH4  2. H3O+");
 
       const [aldehyde] = productsFor("CC=O", NaBH4);
@@ -1146,6 +1146,9 @@ const tests = [
   {
     name: "mild and strong alcohol oxidations handle primary and secondary alcohols",
     run() {
+      assert.equal(context.resolveKnownReagent("swern oxidation").canonical, "1. (COCl)2, DMSO  2. Et3N");
+      assert.equal(context.resolveKnownReagent("dess martin").canonical, "DMP, CH2Cl2");
+
       const [aldehyde] = productsFor("CCCO", PCC);
       assert.equal(aldehyde.label, "Aldehyde");
       assert.equal(aldehyde.productSmiles, "CCC=O");
@@ -1163,7 +1166,8 @@ const tests = [
   {
     name: "hot permanganate oxidizes aldehydes to carboxylic acids",
     run() {
-      assert.equal(context.resolveKnownReagent("acidic potassium permanganate").id, "jones_oxidation");
+      assert.equal(context.resolveKnownReagent("acidic potassium permanganate").id, "permanganate_oxidation");
+      assert.equal(context.resolveKnownReagent("acidic potassium permanganate").canonical, "KMnO4, H3O+, heat");
       const [acid] = productsFor("CCCCC=O", hotPermanganate);
       assert.equal(acid.label, "Carboxylic acid");
       assert.equal(acid.productSmiles, "CCCCC(O)=O");
