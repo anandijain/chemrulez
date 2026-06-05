@@ -171,7 +171,14 @@ export const reagentAliases = [
     id: "alkene_oxymercuration",
     canonical: "1. Hg(OAc)2, H2O  2. NaBH4",
     kind: "alkene oxymercuration-demercuration",
-    aliases: ["hg(oac)2", "hgoac2", "nab h4", "nabH4", "oxymercuration", "oxymercuration demercuration"],
+    aliases: [
+      "hg(oac)2",
+      "hgoac2",
+      "hg(oac)2 h2o nabh4",
+      "hgoac2 h2o nabh4",
+      "oxymercuration",
+      "oxymercuration demercuration",
+    ],
   },
   {
     id: "alkene_hydroboration",

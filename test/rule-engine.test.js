@@ -939,6 +939,9 @@ const tests = [
   {
     name: "hydride reagents reduce aldehydes and ketones to alcohols",
     run() {
+      assert.equal(context.resolveKnownReagent("NaBH4").id, "hydride_reduction");
+      assert.equal(context.resolveKnownReagent("lithium aluminum hydride").id, "hydride_reduction");
+
       const [aldehyde] = productsFor("CC=O", hydrideReduction);
       assert.equal(aldehyde.label, "Primary alcohol");
       assert.equal(aldehyde.productSmiles, "CCO");
