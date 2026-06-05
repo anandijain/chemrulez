@@ -156,6 +156,7 @@ const TsCl = reagent("tosyl_chloride", "TsCl, pyridine", "alcohol tosylation");
 const PCC = reagent("pcc", "PCC", "mild alcohol oxidation");
 const DMP = reagent("dmp", "DMP", "mild alcohol oxidation");
 const Jones = reagent("jones_oxidation", "Na2Cr2O7, H2SO4", "strong alcohol oxidation");
+const hotPermanganate = reagent("jones_oxidation", "KMnO4, heat", "strong alcohol oxidation");
 const formaldehydeReagent = reagent("structural_formaldehyde", "Formaldehyde", "known structure");
 formaldehydeReagent.molecule = { displayName: "Formaldehyde", canonicalSmiles: "C=O" };
 
@@ -1019,6 +1020,19 @@ const tests = [
       const [ketone] = productsFor("CC(O)C", DMP);
       assert.equal(ketone.label, "Ketone");
       assert.equal(ketone.productSmiles, "CC(C)=O");
+    },
+  },
+  {
+    name: "hot permanganate oxidizes aldehydes to carboxylic acids",
+    run() {
+      assert.equal(context.resolveKnownReagent("acidic potassium permanganate").id, "jones_oxidation");
+      const [acid] = productsFor("CCCCC=O", hotPermanganate);
+      assert.equal(acid.label, "Carboxylic acid");
+      assert.equal(acid.productSmiles, "CCCCC(O)=O");
+      assert.equal(acid.annotations.mechanism, "strong aldehyde oxidation");
+
+      const ketoneCandidates = productsFor("CCC(C)=O", hotPermanganate);
+      assert.notEqual(ketoneCandidates[0]?.productSmiles, "CCC(C)(O)=O");
     },
   },
   {

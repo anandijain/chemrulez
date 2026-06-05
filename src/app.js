@@ -1481,6 +1481,12 @@ function findReactionCandidates(molecule, resolution) {
   if (reagentIds.has("pcc") || reagentIds.has("dmp") || reagentIds.has("jones_oxidation")) {
     const alcoholOxidationCandidates = alcoholOxidationCandidatesForReagents(molecule, reagentIds);
     if (alcoholOxidationCandidates.length) return alcoholOxidationCandidates;
+    if (reagentIds.has("jones_oxidation")) {
+      const aldehydeOxidationCandidates = aldehydeOxidationCandidatesForReagents(molecule);
+      if (aldehydeOxidationCandidates.length) return aldehydeOxidationCandidates;
+    } else {
+      return noAlcoholCandidate(molecule);
+    }
   }
 
   if (reagentIds.has("dibal_ester_reduction")) {
@@ -3329,6 +3335,50 @@ function reduceFirstCarbonylToAlcohol(smiles) {
   return null;
 }
 
+function aldehydeOxidationCandidatesForReagents(molecule) {
+  const smiles = reactionSmilesForMolecule(molecule);
+  const productSmiles = oxidizeFirstAldehydeToCarboxylicAcid(smiles);
+  if (!productSmiles) return [];
+
+  return [
+    candidate({
+      id: "aldehyde_strong_oxidation",
+      label: "Carboxylic acid",
+      productName: `${molecule.displayName} oxidation product`,
+      productSmiles,
+      bucket: "high",
+      confidence: 0.82,
+      annotations: {
+        stereochemistry: "unchanged at nonreacting centers",
+        selectivity: "single",
+        mechanism: "strong aldehyde oxidation",
+      },
+      explanation: [
+        "Hot or acidic permanganate and chromium(VI) oxidants take aldehydes to carboxylic acids.",
+        "Ketones are not oxidized by this ordinary first-year rule.",
+      ],
+    }),
+  ];
+}
+
+function oxidizeFirstAldehydeToCarboxylicAcid(smiles) {
+  try {
+    const parsed = chem.fromSmiles(smiles);
+    const carbonyl = findFirstAldehydeCarbonyl(parsed.graph);
+    if (!carbonyl) return null;
+    const product = cloneGraph(parsed.graph);
+    const hydroxylOxygen = addGraphAtom(product, "O");
+    addGraphBond(product.bonds, carbonyl.carbon, hydroxylOxygen, 1);
+    product.root = bestRootForProduct(product, carbonyl.carbon);
+    return smilesFromGraph(product);
+  } catch {
+    const clean = stripStereo(smiles);
+    if (clean === "C=O") return "C(O)=O";
+    if (clean.endsWith("C=O")) return `${clean.slice(0, -3)}C(O)=O`;
+    return null;
+  }
+}
+
 function reduceFirstEsterToAldehydeFragments(smiles) {
   try {
     const parsed = chem.fromSmiles(smiles);
@@ -3372,6 +3422,21 @@ function findFirstCarbonyl(graph) {
     if (atomElement(from) === "O" && atomElement(to) === "C") return { carbon: bond.to, oxygen: bond.from };
   }
   return null;
+}
+
+function findFirstAldehydeCarbonyl(graph) {
+  return carbonylsInGraph(graph).find((carbonyl) => {
+    const carbonNeighbors = graphNeighbors(graph, carbonyl.carbon)
+      .filter((neighbor) => neighbor.atomIndex !== carbonyl.oxygen)
+      .filter((neighbor) => atomElement(graph.atoms[neighbor.atomIndex]) === "C")
+      .length;
+    const heteroSingleNeighbors = graphNeighbors(graph, carbonyl.carbon)
+      .filter((neighbor) => neighbor.atomIndex !== carbonyl.oxygen)
+      .filter((neighbor) => neighbor.bond.order === 1)
+      .filter((neighbor) => atomElement(graph.atoms[neighbor.atomIndex]) !== "C")
+      .length;
+    return carbonNeighbors <= 1 && heteroSingleNeighbors === 0;
+  }) || null;
 }
 
 function findFirstEster(graph) {
@@ -3697,7 +3762,7 @@ function alcoholTosylationCandidates(molecule) {
 function alcoholOxidationCandidatesForReagents(molecule, reagentIds) {
   const strong = reagentIds.has("jones_oxidation");
   const product = oxidizeFirstAlcohol(reactionSmilesForMolecule(molecule), { strong });
-  if (!product) return noAlcoholCandidate(molecule);
+  if (!product) return [];
   if (product.blocked) {
     return [
       candidate({
