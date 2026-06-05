@@ -151,6 +151,9 @@ methylamine.nSubstituents = ["C"];
 const dimethylamine = reagent("amine_dimethylamine", "Dimethylamine", "secondary amine enamine donor");
 dimethylamine.amineClass = "secondary";
 dimethylamine.nSubstituents = ["C", "C"];
+const diethylamine = reagent("amine_diethylamine", "Diethylamine", "secondary amine enamine donor");
+diethylamine.amineClass = "secondary";
+diethylamine.nSubstituents = ["CC", "CC"];
 const methylGrignard = reagent("local_grignard_methyl", "CH3MgBr, H3O+", "Grignard addition");
 methylGrignard.organoSmiles = "C";
 const phenylGrignard = reagent("local_grignard_phenyl", "PhMgBr, H3O+", "Grignard addition");
@@ -675,6 +678,30 @@ const tests = [
     },
   },
   {
+    name: "stepwise ethyl Grignard adds to ketones entered as structural reagents",
+    async run() {
+      const [grignard] = context.findReactionCandidates(
+        context.withChemMetadata(context.localMoleculeFromInput("ethyl bromide")),
+        resolution(magnesium),
+      );
+      assert.equal(grignard.productSmiles, "CC[Mg]Br");
+
+      const ketone = await context.resolveStructuralReagent("3-pentanone");
+      assert.equal(ketone.molecule.canonicalSmiles, "CCC(=O)CC");
+
+      const [alcohol] = context.findReactionCandidates(
+        context.withChemMetadata({
+          displayName: "Ethylmagnesium bromide",
+          canonicalSmiles: grignard.productSmiles,
+          structureKey: grignard.productSmiles,
+        }),
+        { reagent: ketone, reagents: [ketone] },
+      );
+      assert.equal(alcohol.label, "Alcohol after Grignard addition and acid workup");
+      assert.equal(alcohol.productSmiles, "CCC(O)(CC)CC");
+    },
+  },
+  {
     name: "PBr3 and SOCl2 convert alcohols into alkyl halides",
     run() {
       const [bromide] = productsFor("CCO", PBr3);
@@ -1003,9 +1030,38 @@ const tests = [
       const secondary = await context.resolveStructuralReagent("dimethylamine");
       assert.equal(secondary.kind, "secondary amine enamine donor");
       const [enamine] = productsFor("CC=O", dimethylamine);
-      assert.equal(enamine.label, "Enamine");
+      assert.equal(enamine.label, "Major enamine");
       assert.equal(enamine.productSmiles, "C=CN(C)C");
       assert.equal(enamine.annotations.mechanism, "enamine formation");
+    },
+  },
+  {
+    name: "3-pentanone and diethylamine form enamine candidates",
+    async run() {
+      assert.equal(context.localMoleculeFromInput("3-pentanone").canonicalSmiles, "CCC(=O)CC");
+      const resolved = await context.resolveStructuralReagent("diethylamine");
+      assert.equal(resolved.kind, "secondary amine enamine donor");
+      assert.equal(resolved.amineClass, "secondary");
+
+      const resolution = await context.resolveReagentInput("diethylamine");
+      const candidates = context.findReactionCandidates(
+        context.withChemMetadata(context.localMoleculeFromInput("3-pentanone")),
+        resolution,
+      );
+      assert.equal(candidates[0].label, "Major enamine");
+      assert.equal(candidates[0].annotations.mechanism, "enamine formation");
+      assert.match(candidates[0].productSmiles, /N/);
+      assert.match(candidates[0].productSmiles, /=/);
+    },
+  },
+  {
+    name: "unsymmetric ketones rank more substituted enamine first",
+    run() {
+      const candidates = productsFor("CCCC(C)=O", dimethylamine);
+      assert.equal(candidates.length, 2);
+      assert.equal(candidates[0].label, "Major enamine");
+      assert.equal(candidates[0].annotations.selectivity, "more substituted enamine favored");
+      assert.equal(candidates[1].label, "Minor enamine");
     },
   },
   {

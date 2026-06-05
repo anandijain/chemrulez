@@ -174,6 +174,20 @@ const localMolecules = [
     molecularWeight: "86.13",
   },
   {
+    keys: ["3pentanone", "pentan3one", "diethylketone", "diethyl ketone"],
+    displayName: "3-Pentanone",
+    canonicalSmiles: "CCC(=O)CC",
+    formula: "C5H10O",
+    molecularWeight: "86.13",
+  },
+  {
+    keys: ["2pentanone", "pentan2one", "methylpropylketone", "methyl propyl ketone"],
+    displayName: "2-Pentanone",
+    canonicalSmiles: "CCCC(C)=O",
+    formula: "C5H10O",
+    molecularWeight: "86.13",
+  },
+  {
     keys: ["benzene"],
     displayName: "Benzene",
     canonicalSmiles: "c1ccccc1",
@@ -200,6 +214,13 @@ const localMolecules = [
     canonicalSmiles: "CNC",
     formula: "C2H7N",
     molecularWeight: "45.08",
+  },
+  {
+    keys: ["diethylamine", "n ethylethanamine"],
+    displayName: "Diethylamine",
+    canonicalSmiles: "CCNCC",
+    formula: "C4H11N",
+    molecularWeight: "73.14",
   },
   {
     keys: ["pyrrolidine"],
@@ -3406,9 +3427,11 @@ function noCarbonylReductionCandidate(molecule, reagent = { canonical: "NaBH4/Li
 
 function carbonylAmineCondensationCandidates(molecule, amine) {
   const smiles = reactionSmilesForMolecule(molecule);
-  const productSmiles = amine.amineClass === "primary"
-    ? imineFromCarbonyl(smiles, amine)
-    : enamineFromCarbonyl(smiles, amine);
+  if (amine.amineClass === "secondary") {
+    return enamineCandidatesForCarbonyl(molecule, amine);
+  }
+
+  const productSmiles = imineFromCarbonyl(smiles, amine);
   const label = amine.amineClass === "primary" ? "Imine" : "Enamine";
   const mechanism = amine.amineClass === "primary" ? "imine formation" : "enamine formation";
 
@@ -3470,14 +3493,136 @@ function imineFromCarbonyl(smiles, amine) {
 }
 
 function enamineFromCarbonyl(smiles, amine) {
-  if (!carbonylHasAlphaHydrogen(smiles)) return null;
+  return enamineProductOptions(smiles, amine)[0]?.productSmiles || null;
+}
+
+function enamineCandidatesForCarbonyl(molecule, amine) {
+  const smiles = reactionSmilesForMolecule(molecule);
+  const options = enamineProductOptions(smiles, amine);
+  if (!options.length) {
+    return [
+      candidate({
+        id: "enamine_formation_no_product",
+        label: "No enamine product",
+        productName: molecule.displayName,
+        productSmiles: smiles,
+        bucket: "none",
+        confidence: 0.55,
+        annotations: {
+          stereochemistry: "not-modeled",
+          selectivity: "none",
+          warnings: ["Enamine formation needs an aldehyde or ketone with at least one alpha hydrogen."],
+        },
+        explanation: [
+          `${amine.canonical} is treated as a secondary amine co-reagent.`,
+          "Secondary amines form enamines only when the carbonyl has an alpha hydrogen to lose during dehydration.",
+        ],
+      }),
+    ];
+  }
+
+  const maxScore = Math.max(...options.map((option) => option.score));
+  return options.map((option, index) => candidate({
+    id: `enamine_formation_${amine.id}_${index}`,
+    label: option.score === maxScore ? "Major enamine" : "Minor enamine",
+    productName: `${molecule.displayName} enamine`,
+    productSmiles: option.productSmiles,
+    bucket: option.score === maxScore ? "high" : "medium",
+    confidence: option.score === maxScore ? 0.72 : 0.58,
+    annotations: {
+      stereochemistry: "not-modeled",
+      selectivity: option.score === maxScore ? "more substituted enamine favored" : "less substituted enamine candidate",
+      mechanism: "enamine formation",
+      warnings: ["This ranking uses alkene substitution as a first-pass thermodynamic enamine heuristic; amine bulk and kinetic conditions are not fully modeled."],
+    },
+    explanation: [
+      `${amine.canonical} is treated as a secondary amine co-reagent.`,
+      "The app forms candidate enamines by replacing C=O with C-N and placing C=C to an alpha carbon with an alpha hydrogen.",
+      option.score === maxScore
+        ? "This candidate is ranked major because its enamine double bond is more substituted."
+        : "This candidate is retained as a less substituted regioisomer.",
+    ],
+  }));
+}
+
+function enamineProductOptions(smiles, amine) {
+  let parsed;
+  try {
+    parsed = chem.fromSmiles(smiles);
+  } catch {
+    return fallbackEnamineProductOptions(smiles, amine);
+  }
+
+  const carbonyl = findFirstCarbonyl(parsed.graph);
+  if (!carbonyl) return [];
+  const alphaCarbons = graphNeighbors(parsed.graph, carbonyl.carbon)
+    .filter((neighbor) => atomElement(parsed.graph.atoms[neighbor.atomIndex]) === "C")
+    .filter((neighbor) => implicitHydrogenCount(parsed.graph, neighbor.atomIndex) > 0);
+
+  const products = alphaCarbons.map((alpha) => {
+    const product = cloneGraph(parsed.graph);
+    const carbonylBond = graphBondBetween(product, carbonyl.carbon, carbonyl.oxygen);
+    const alphaBond = graphBondBetween(product, carbonyl.carbon, alpha.atomIndex);
+    if (!carbonylBond || !alphaBond) return null;
+    removeGraphBond(product, carbonyl.carbon, carbonyl.oxygen);
+    alphaBond.order = 2;
+    const amineNitrogen = addSecondaryAmineGroup(product, carbonyl.carbon, amine);
+    if (amineNitrogen === null) return null;
+    product.root = alpha.atomIndex;
+    return {
+      productSmiles: smilesFromGraph(product),
+      score: alkeneSubstitutionScore(product, carbonyl.carbon, { from: carbonyl.carbon, to: alpha.atomIndex })
+        + alkeneSubstitutionScore(product, alpha.atomIndex, { from: carbonyl.carbon, to: alpha.atomIndex }),
+    };
+  }).filter(Boolean);
+
+  const unique = new Map();
+  for (const product of products) {
+    const previous = unique.get(product.productSmiles);
+    if (!previous || product.score > previous.score) unique.set(product.productSmiles, product);
+  }
+  return [...unique.values()].sort((a, b) => b.score - a.score || a.productSmiles.localeCompare(b.productSmiles));
+}
+
+function addSecondaryAmineGroup(graph, carbonIndex, amine) {
+  const substituents = amine.nSubstituents?.length ? amine.nSubstituents : ["C", "C"];
+  const nitrogen = addGraphAtom(graph, "N");
+  addGraphBond(graph.bonds, carbonIndex, nitrogen, 1);
+  for (const substituent of substituents.slice(0, 2)) {
+    addFragmentToAtom(graph, nitrogen, substituent);
+  }
+  return nitrogen;
+}
+
+function addFragmentToAtom(graph, atomIndex, fragmentSmiles) {
+  let fragment;
+  try {
+    fragment = chem.fromSmiles(fragmentSmiles).graph;
+  } catch {
+    return addSubstituentAtom(graph, atomIndex, fragmentSmiles);
+  }
+
+  const oldToNew = new Map();
+  for (const atom of fragment.atoms) {
+    const newId = addGraphAtom(graph, atom.token);
+    oldToNew.set(atom.id, newId);
+  }
+  for (const bond of fragment.bonds) {
+    addGraphBond(graph.bonds, oldToNew.get(bond.from), oldToNew.get(bond.to), bond.order, bond.direction || "");
+  }
+  addGraphBond(graph.bonds, atomIndex, oldToNew.get(fragment.root ?? 0), 1);
+  return oldToNew.get(fragment.root ?? 0);
+}
+
+function fallbackEnamineProductOptions(smiles, amine) {
+  if (!carbonylHasAlphaHydrogen(smiles)) return [];
   const clean = stripStereo(smiles);
   const [first = "C", second = "C"] = amine.nSubstituents || [];
   const amineGroup = `N(${first})${second}`;
-  if (clean === "CC=O") return `C=C${amineGroup}`;
-  if (clean.endsWith("C=O")) return `${clean.slice(0, -3)}C=C${amineGroup}`;
-  if (clean === "CC(C)=O" || clean === "CC(=O)C") return `C=C(${amineGroup})C`;
-  return null;
+  if (clean === "CC=O") return [{ productSmiles: `C=C${amineGroup}`, score: 1 }];
+  if (clean.endsWith("C=O")) return [{ productSmiles: `${clean.slice(0, -3)}C=C${amineGroup}`, score: 1 }];
+  if (clean === "CC(C)=O" || clean === "CC(=O)C") return [{ productSmiles: `C=C(${amineGroup})C`, score: 2 }];
+  return [];
 }
 
 function carbonylHasAlphaHydrogen(smiles) {
