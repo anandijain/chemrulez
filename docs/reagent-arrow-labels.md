@@ -20,6 +20,8 @@ oxidation`, `DMP`, `PCC`, `Jones oxidation`, or `DIBAL-H`.
 | Hydrohalogenation | `HBr` |
 | Radical anti-Markovnikov hydrobromination | `HBr, ROOR` |
 | Acid-catalyzed alkene hydration | `H2SO4, H2O` |
+| Carbonyl protection as cyclic acetal/ketal | `HOCH2CH2OH, H+` |
+| Acetal/ketal deprotection | `H3O+` or aqueous acid |
 | Hydroxide substitution/basic epoxide opening | `NaOH` |
 | Cyanide substitution | `NaCN` |
 | E2 with small base | `NaOEt, EtOH, heat` |

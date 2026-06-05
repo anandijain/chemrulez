@@ -124,6 +124,7 @@ const alkyneHydroboration = reagent("alkyne_hydroboration", "1. R2BH  2. H2O2, N
 const HBr = reagent("hbr", "HBr", "hydrohalogenation");
 const HBrPeroxides = reagent("hbr_peroxides", "HBr, ROOR", "radical anti-Markovnikov hydrohalogenation");
 const acidHydration = reagent("acid_hydration", "H3O+", "acid-catalyzed alkene hydration");
+const ethyleneGlycolProtection = reagent("ethylene_glycol_acetal_protection", "HOCH2CH2OH, H+", "carbonyl acetal protection");
 const hydroxide = reagent("hydroxide", "NaOH, H2O", "hydroxide nucleophile");
 hydroxide.nucleophile = { token: "O", label: "hydroxide" };
 const cyanide = reagent("cyanide", "NaCN", "cyanide nucleophile");
@@ -1028,6 +1029,27 @@ const tests = [
       const [alcohol] = productsFor("CCCCCO", NaBH4);
       assert.equal(alcohol.label, "No aldehyde or ketone carbonyl found");
       assert.equal(alcohol.bucket, "none");
+    },
+  },
+  {
+    name: "ethylene glycol protects and aqueous acid deprotects carbonyls",
+    run() {
+      assert.equal(context.resolveKnownReagent("ethylene glycol h+").id, "ethylene_glycol_acetal_protection");
+      assert.equal(context.resolveKnownReagent("ethylene glycol h+").canonical, "HOCH2CH2OH, H+");
+      assert.deepEqual(Array.from(context.resolveKnownReagent("ethylene glycol h+").acceptedLabels), ["ethylene glycol, H+"]);
+
+      const [protectedKetone] = productsFor("CC(C)=O", ethyleneGlycolProtection);
+      assert.equal(protectedKetone.label, "Cyclic acetal/ketal");
+      assert.equal(protectedKetone.productSmiles, "CC1(OCCO1)C");
+      assert.equal(protectedKetone.annotations.mechanism, "acid-catalyzed acetal formation");
+
+      const [deprotected] = productsFor(protectedKetone.productSmiles, acidHydration);
+      assert.equal(deprotected.label, "Carbonyl deprotection");
+      assert.equal(deprotected.productSmiles, "CC(=O)C");
+      assert.equal(deprotected.annotations.mechanism, "acid-catalyzed acetal hydrolysis");
+
+      const [protectedAldehyde] = productsFor("CC=O", ethyleneGlycolProtection);
+      assert.equal(protectedAldehyde.productSmiles, "CC1OCCO1");
     },
   },
   {

@@ -1538,6 +1538,14 @@ function findReactionCandidates(molecule, resolution) {
   const substrateAlkylHalide = classifyAlkylHalide(molecule, molecule.displayName || molecule.canonicalSmiles);
   const substrateGrignard = classifyGrignard(molecule, molecule.displayName || molecule.canonicalSmiles);
 
+  if (reagentIds.has("acid_hydration") && hasEthyleneGlycolAcetal(substrateSmiles)) {
+    return acetalDeprotectionCandidates(molecule);
+  }
+
+  if (reagentIds.has("ethylene_glycol_acetal_protection")) {
+    return acetalProtectionCandidates(molecule);
+  }
+
   if (substrateAlkylHalide && reagentIds.has("mg_ether") && structuralCarbonyl) {
     const grignardProduct = alkylHalideToGrignard(substrateSmiles);
     const substrateGrignardReagent = grignardProduct
@@ -3357,6 +3365,14 @@ function hasAldehydeOrKetone(smiles) {
   }
 }
 
+function hasEthyleneGlycolAcetal(smiles) {
+  try {
+    return Boolean(findFirstEthyleneGlycolAcetal(chem.fromSmiles(smiles).graph));
+  } catch {
+    return false;
+  }
+}
+
 function hasEster(smiles) {
   try {
     return Boolean(findFirstEster(chem.fromSmiles(smiles).graph));
@@ -3536,6 +3552,80 @@ function noCarbonylReductionCandidate(molecule, reagent = { canonical: "NaBH4/Li
         `${reagent.canonical} reduces aldehydes and ketones to alcohols in the current rule set.`,
         "The current substrate does not contain an aldehyde or ketone carbonyl.",
         "If you expected pentanal, check that the active molecule is CCCCC=O rather than CCCCCO.",
+      ],
+    }),
+  ];
+}
+
+function acetalProtectionCandidates(molecule) {
+  const smiles = reactionSmilesForMolecule(molecule);
+  const productSmiles = protectFirstCarbonylAsEthyleneGlycolAcetal(smiles);
+  if (!productSmiles) {
+    return [
+      candidate({
+        id: "acetal_protection_no_carbonyl",
+        label: "No aldehyde or ketone carbonyl found",
+        productName: molecule.displayName,
+        productSmiles: smiles,
+        bucket: "none",
+        confidence: 0.68,
+        annotations: {
+          stereochemistry: "unchanged",
+          selectivity: "none",
+          warnings: ["Ethylene glycol acetal protection needs an aldehyde or ketone carbonyl."],
+        },
+        explanation: [
+          "Ethylene glycol and acid protect aldehydes or ketones as cyclic acetals/ketals.",
+          "The current graph did not find an aldehyde or ketone carbonyl.",
+        ],
+      }),
+    ];
+  }
+
+  return [
+    candidate({
+      id: "ethylene_glycol_acetal_protection",
+      label: "Cyclic acetal/ketal",
+      productName: `${molecule.displayName} protected carbonyl`,
+      productSmiles,
+      bucket: "high",
+      confidence: 0.8,
+      annotations: {
+        stereochemistry: "not-modeled at acetal carbon",
+        selectivity: "carbonyl protection",
+        mechanism: "acid-catalyzed acetal formation",
+        warnings: ["Acetal stereochemistry and equilibrium/water-removal details are not modeled."],
+      },
+      explanation: [
+        "Ethylene glycol under acid forms a cyclic acetal/ketal from an aldehyde or ketone.",
+        "This protects the carbonyl from many basic and nucleophilic steps.",
+        "Aqueous acid deprotects the acetal back to the carbonyl.",
+      ],
+    }),
+  ];
+}
+
+function acetalDeprotectionCandidates(molecule) {
+  const smiles = reactionSmilesForMolecule(molecule);
+  const productSmiles = deprotectFirstEthyleneGlycolAcetal(smiles);
+  if (!productSmiles) return [];
+
+  return [
+    candidate({
+      id: "ethylene_glycol_acetal_deprotection",
+      label: "Carbonyl deprotection",
+      productName: `${molecule.displayName} deprotected carbonyl`,
+      productSmiles,
+      bucket: "high",
+      confidence: 0.82,
+      annotations: {
+        stereochemistry: "acetal center consumed",
+        selectivity: "acetal hydrolysis",
+        mechanism: "acid-catalyzed acetal hydrolysis",
+      },
+      explanation: [
+        "Aqueous acid hydrolyzes acetals/ketals back to aldehydes or ketones.",
+        "The ethylene glycol protecting group is removed and the carbonyl is restored.",
       ],
     }),
   ];
@@ -3788,6 +3878,53 @@ function reduceFirstCarbonylToAlcohol(smiles) {
   return null;
 }
 
+function protectFirstCarbonylAsEthyleneGlycolAcetal(smiles) {
+  try {
+    const parsed = chem.fromSmiles(smiles);
+    const carbonyl = findFirstAldehydeOrKetoneCarbonyl(parsed.graph);
+    if (!carbonyl) return null;
+    const product = cloneGraph(parsed.graph);
+    removeGraphBond(product, carbonyl.carbon, carbonyl.oxygen);
+
+    const oxygenA = addGraphAtom(product, "O");
+    const carbonA = addGraphAtom(product, "C");
+    const carbonB = addGraphAtom(product, "C");
+    const oxygenB = addGraphAtom(product, "O");
+    addGraphBond(product.bonds, carbonyl.carbon, oxygenA, 1);
+    addGraphBond(product.bonds, oxygenA, carbonA, 1);
+    addGraphBond(product.bonds, carbonA, carbonB, 1);
+    addGraphBond(product.bonds, carbonB, oxygenB, 1);
+    addGraphBond(product.bonds, oxygenB, carbonyl.carbon, 1);
+    product.root = bestRootForProduct(product, carbonyl.carbon);
+    product.hasRings = graphHasCycle(product.atoms, product.bonds);
+    return smilesFromGraph(product);
+  } catch {
+    return null;
+  }
+}
+
+function deprotectFirstEthyleneGlycolAcetal(smiles) {
+  try {
+    const parsed = chem.fromSmiles(smiles);
+    const acetal = findFirstEthyleneGlycolAcetal(parsed.graph);
+    if (!acetal) return null;
+    const product = cloneGraph(parsed.graph);
+    for (const atomIndex of acetal.protectingAtoms) {
+      removeGraphBond(product, atomIndex, acetal.acetalCarbon);
+      for (const neighbor of [...graphNeighbors(product, atomIndex)]) {
+        removeGraphBond(product, atomIndex, neighbor.atomIndex);
+      }
+    }
+    const carbonylOxygen = addGraphAtom(product, "O");
+    addGraphBond(product.bonds, acetal.acetalCarbon, carbonylOxygen, 2);
+    product.root = bestRootForProduct(product, acetal.acetalCarbon);
+    const keptAtoms = new Set(connectedAtomSet(product, product.root, new Set(acetal.protectingAtoms)));
+    return smilesFromGraph(graphSubgraph(product, keptAtoms, product.root));
+  } catch {
+    return null;
+  }
+}
+
 function aldehydeOxidationCandidatesForReagents(molecule) {
   const smiles = reactionSmilesForMolecule(molecule);
   const productSmiles = oxidizeFirstAldehydeToCarboxylicAcid(smiles);
@@ -3930,6 +4067,51 @@ function findFirstAldehydeOrKetoneCarbonyl(graph) {
       .length;
     return carbonNeighbors <= 2 && heteroSingleNeighbors === 0;
   }) || null;
+}
+
+function findFirstEthyleneGlycolAcetal(graph) {
+  for (const atom of graph.atoms) {
+    if (atomElement(atom) !== "C") continue;
+    const oxygenNeighbors = graphNeighbors(graph, atom.id)
+      .filter((neighbor) => neighbor.bond.order === 1)
+      .filter((neighbor) => atomElement(graph.atoms[neighbor.atomIndex]) === "O");
+    if (oxygenNeighbors.length < 2) continue;
+
+    for (let i = 0; i < oxygenNeighbors.length; i += 1) {
+      for (let j = i + 1; j < oxygenNeighbors.length; j += 1) {
+        const oxygenA = oxygenNeighbors[i].atomIndex;
+        const oxygenB = oxygenNeighbors[j].atomIndex;
+        const bridge = ethyleneBridgeBetweenOxygens(graph, oxygenA, oxygenB, atom.id);
+        if (bridge) {
+          return {
+            acetalCarbon: atom.id,
+            oxygenA,
+            oxygenB,
+            protectingAtoms: [oxygenA, ...bridge, oxygenB],
+          };
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function ethyleneBridgeBetweenOxygens(graph, oxygenA, oxygenB, acetalCarbon) {
+  const firstCarbons = graphNeighbors(graph, oxygenA)
+    .filter((neighbor) => neighbor.atomIndex !== acetalCarbon)
+    .filter((neighbor) => neighbor.bond.order === 1)
+    .filter((neighbor) => atomElement(graph.atoms[neighbor.atomIndex]) === "C");
+  for (const first of firstCarbons) {
+    const second = graphNeighbors(graph, first.atomIndex)
+      .filter((neighbor) => neighbor.atomIndex !== oxygenA)
+      .filter((neighbor) => neighbor.bond.order === 1)
+      .find((neighbor) => {
+        return atomElement(graph.atoms[neighbor.atomIndex]) === "C"
+          && graphBondBetween(graph, neighbor.atomIndex, oxygenB)?.order === 1;
+      });
+    if (second) return [first.atomIndex, second.atomIndex];
+  }
+  return null;
 }
 
 function findFirstEster(graph) {
