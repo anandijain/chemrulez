@@ -372,6 +372,27 @@ async function importMolecule(rawInput) {
     setImportStatus(`Loaded ${molecule.displayName}.`);
   } catch (error) {
     console.error(error);
+    const request = parseMoleculeInput(rawInput);
+    if (request.type === "name") {
+      try {
+        setImportStatus("Searching PubChem...");
+        const options = await fetchPubChemMoleculeOptions(rawInput);
+        if (options.length === 1) {
+          selectMolecule(options[0], `Imported ${options[0].displayName}`);
+          setImportStatus(`Loaded ${options[0].displayName}.`);
+          return;
+        }
+        if (options.length > 1) {
+          renderMoleculeOptions(options);
+          setImportStatus(`Found ${options.length} PubChem matches. Choose the starting molecule.`);
+          return;
+        }
+        setImportStatus(`No PubChem search results for "${rawInput}". Try a SMILES string or CID.`, true);
+        return;
+      } catch (searchError) {
+        console.error(searchError);
+      }
+    }
     setImportStatus(error.message || "Could not import molecule.", true);
   }
 }
@@ -401,7 +422,7 @@ async function fetchMolecule(request, rawInput) {
 
   const data = await response.json();
   const props = data?.PropertyTable?.Properties?.[0];
-  const smiles = props?.IsomericSMILES || props?.CanonicalSMILES || props?.ConnectivitySMILES;
+  const smiles = props?.IsomericSMILES || props?.CanonicalSMILES || props?.ConnectivitySMILES || props?.SMILES;
   if (!smiles) {
     throw new Error(`PubChem did not return a usable structure for "${rawInput}".`);
   }
@@ -420,6 +441,104 @@ async function fetchMolecule(request, rawInput) {
     molecularWeight: props.MolecularWeight,
     imageUrl: imageUrlForCid(cid),
   };
+}
+
+async function fetchMoleculesByCids(cids, rawInput) {
+  const uniqueCids = [...new Set(cids.map(String).filter(Boolean))].slice(0, 8);
+  if (!uniqueCids.length) return [];
+  const propertyUrl = `${pubchemBase}/compound/cid/${uniqueCids.map(encodeURIComponent).join(",")}/property/Title,CanonicalSMILES,ConnectivitySMILES,IsomericSMILES,MolecularFormula,MolecularWeight/JSON`;
+  const response = await fetch(propertyUrl);
+  if (!response.ok) return [];
+  const data = await response.json();
+  return (data?.PropertyTable?.Properties || [])
+    .map((props) => moleculeFromPubChemProperties(props, rawInput, "name"))
+    .filter(Boolean);
+}
+
+function moleculeFromPubChemProperties(props, rawInput, inputType) {
+  const smiles = props?.IsomericSMILES || props?.CanonicalSMILES || props?.ConnectivitySMILES || props?.SMILES;
+  if (!smiles || !props?.CID) return null;
+  const cid = props.CID;
+  return {
+    id: `pubchem:${cid}`,
+    cid,
+    input: rawInput,
+    inputType,
+    displayName: props.Title || rawInput,
+    canonicalSmiles: smiles,
+    isomericSmiles: props.IsomericSMILES,
+    formula: props.MolecularFormula,
+    molecularWeight: props.MolecularWeight,
+    imageUrl: imageUrlForCid(cid),
+  };
+}
+
+async function fetchPubChemMoleculeOptions(rawInput) {
+  const cids = await fetchPubChemNameSearchCids(rawInput);
+  const cidMolecules = await fetchMoleculesByCids(cids, rawInput);
+  const autocompleteTerms = await fetchPubChemAutocompleteTerms(rawInput);
+  const termMolecules = [];
+
+  for (const term of autocompleteTerms.slice(0, 8)) {
+    try {
+      termMolecules.push(await fetchMolecule({ type: "name", value: term }, rawInput));
+    } catch {
+      // Some autocomplete terms are headings/synonyms without a structure endpoint hit.
+    }
+  }
+
+  return uniqueMoleculesByStructure([...termMolecules, ...cidMolecules]).slice(0, 8);
+}
+
+async function fetchPubChemNameSearchCids(rawInput) {
+  const cids = [];
+  for (const query of nameVariants(rawInput)) {
+    const encoded = encodeURIComponent(query);
+    const urls = [
+      `${pubchemBase}/compound/name/${encoded}/cids/JSON?name_type=word`,
+      `${pubchemBase}/compound/name/${encoded}/cids/JSON`,
+    ];
+    for (const url of urls) {
+      try {
+        const response = await fetch(url);
+        if (!response.ok) continue;
+        const data = await response.json();
+        cids.push(...(data?.IdentifierList?.CID || []));
+      } catch {
+        // Continue with other PubChem search forms.
+      }
+    }
+  }
+  return [...new Set(cids.map(String))].slice(0, 12);
+}
+
+async function fetchPubChemAutocompleteTerms(rawInput) {
+  const terms = [];
+  for (const query of nameVariants(rawInput)) {
+    try {
+      const url = `https://pubchem.ncbi.nlm.nih.gov/rest/autocomplete/compound/${encodeURIComponent(query)}/JSON?limit=8`;
+      const response = await fetch(url);
+      if (!response.ok) continue;
+      const data = await response.json();
+      const compounds = data?.dictionary_terms?.compound || [];
+      terms.push(...compounds.map((item) => typeof item === "string" ? item : item?.term).filter(Boolean));
+    } catch {
+      // Autocomplete is a convenience layer; direct PUG-REST results are enough if it fails.
+    }
+  }
+  return [...new Set(terms)].slice(0, 12);
+}
+
+function uniqueMoleculesByStructure(molecules) {
+  const seen = new Set();
+  const unique = [];
+  for (const molecule of molecules) {
+    const key = molecule.cid ? `cid:${molecule.cid}` : (molecule.canonicalSmiles || molecule.displayName);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(molecule);
+  }
+  return unique;
 }
 
 async function fetchMoleculeWithFallback(request, rawInput) {
@@ -483,9 +602,27 @@ function moleculeLookupRequests(request, rawInput) {
 function nameVariants(input) {
   const trimmed = input.trim();
   const collapsed = trimmed.replace(/\s+/g, " ");
+  const wordLocants = collapsed.replace(/\b(one|two|three|four|five|six|seven|eight|nine|ten)\s+([a-z])/gi, (_, word, next) => {
+    const locants = {
+      one: "1",
+      two: "2",
+      three: "3",
+      four: "4",
+      five: "5",
+      six: "6",
+      seven: "7",
+      eight: "8",
+      nine: "9",
+      ten: "10",
+    };
+    return `${locants[word.toLowerCase()]}-${next}`;
+  });
+  const locantHyphenated = collapsed
+    .replace(/\b(\d+)\s+([a-z])/gi, "$1-$2")
+    .replace(/\b([a-z]+)\s+(\d+)\b/gi, "$1-$2");
   const hyphenatedLocants = collapsed.replace(/(\d+)-?methyl\s+(\d+)-?butene/i, "$1-methyl-$2-butene");
   const inferredMethylButene = collapsed.replace(/^methyl\s+(\d+)-?butene$/i, "$1-methyl-$1-butene");
-  return [...new Set([trimmed, collapsed, hyphenatedLocants, inferredMethylButene])];
+  return [...new Set([trimmed, collapsed, wordLocants, locantHyphenated, hyphenatedLocants, inferredMethylButene])];
 }
 
 function localMoleculeFromInput(input) {
@@ -3976,6 +4113,42 @@ function renderCandidates(candidates, resolution) {
   queueMicrotask(() => firstEnabledCandidateButton()?.focus({ preventScroll: true }));
 }
 
+function renderMoleculeOptions(molecules) {
+  setResultsHtml(molecules
+    .map((molecule, index) => {
+      const smiles = molecule.isomericSmiles || molecule.canonicalSmiles;
+      return `
+        <article class="candidate molecule-option">
+          <img src="${molecule.imageUrl || imageUrlForSmiles(smiles)}" alt="${escapeHtml(molecule.displayName)} structure">
+          <div>
+            <span class="tag moderate">PubChem</span>
+            <h3>${escapeHtml(molecule.displayName)}</h3>
+            <p><code>${escapeHtml(smiles)}</code></p>
+            <p class="candidate-meta">
+              ${molecule.formula ? `<span>${escapeHtml(molecule.formula)}</span>` : ""}
+              ${molecule.molecularWeight ? `<span>${escapeHtml(molecule.molecularWeight)}</span>` : ""}
+              ${molecule.cid ? `<span>CID ${escapeHtml(molecule.cid)}</span>` : ""}
+            </p>
+            <p><a href="${pubChemUrlForMolecule(molecule)}" target="_blank" rel="noreferrer">Open in PubChem</a></p>
+          </div>
+          <button data-molecule-option="${index}" aria-label="Import ${escapeHtml(molecule.displayName)}">Import</button>
+        </article>
+      `;
+    })
+    .join(""));
+
+  els.results.querySelectorAll("[data-molecule-option]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const molecule = molecules[Number(button.dataset.moleculeOption)];
+      selectMolecule(molecule, `Imported ${molecule.displayName}`);
+      clearResults();
+      setImportStatus(`Loaded ${molecule.displayName}.`);
+    });
+  });
+
+  queueMicrotask(() => firstEnabledCandidateButton()?.focus({ preventScroll: true }));
+}
+
 function reactionAnnotationHtml(annotations) {
   const normalized = normalizeReactionAnnotations(annotations);
   const pills = [
@@ -4004,7 +4177,7 @@ function clearResults() {
 }
 
 function enabledCandidateButtons() {
-  return [...els.results.querySelectorAll("[data-candidate]:not(:disabled)")];
+  return [...els.results.querySelectorAll("[data-candidate]:not(:disabled), [data-molecule-option]:not(:disabled)")];
 }
 
 function firstEnabledCandidateButton() {

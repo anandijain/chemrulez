@@ -689,6 +689,15 @@ select:focus {
   font-weight: 700;
 }
 
+.candidate-meta {
+  color: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 0.9rem;
+  gap: 8px;
+  margin-top: 4px;
+}
+
 .candidate ul {
   color: var(--muted);
   font-size: 0.9rem;

@@ -905,6 +905,13 @@ const tests = [
     },
   },
   {
+    name: "molecule name variants normalize numeric and spoken locants for PubChem",
+    run() {
+      assert.ok(context.nameVariants("1 hexene").includes("1-hexene"));
+      assert.ok(context.nameVariants("one hexene").includes("1-hexene"));
+    },
+  },
+  {
     name: "O3 then DMS resolves as reductive ozonolysis",
     run() {
       const resolved = context.resolveKnownReagent("O3 then DMS");
