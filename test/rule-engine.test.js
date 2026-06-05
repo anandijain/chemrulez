@@ -75,8 +75,8 @@ vm.runInContext(
 );
 vm.runInContext(
   fs.readFileSync(path.join(__dirname, "../src/app.js"), "utf8")
-    .replace('import { synthesisPuzzles } from "./puzzles.js?v=__COMMIT_SHA__";', "")
-    .replace('import { reagentAliases } from "./reagents.js?v=__COMMIT_SHA__";', ""),
+    .replace('import { synthesisPuzzles } from "./puzzles.js?v=__ASSET_VERSION__";', "")
+    .replace('import { reagentAliases } from "./reagents.js?v=__ASSET_VERSION__";', ""),
   context,
   { filename: "src/app.js" },
 );

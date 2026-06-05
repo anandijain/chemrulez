@@ -1,5 +1,5 @@
-import { synthesisPuzzles } from "./puzzles.js?v=__COMMIT_SHA__";
-import { reagentAliases } from "./reagents.js?v=__COMMIT_SHA__";
+import { synthesisPuzzles } from "./puzzles.js?v=__ASSET_VERSION__";
+import { reagentAliases } from "./reagents.js?v=__ASSET_VERSION__";
 
 const pubchemBase = "https://pubchem.ncbi.nlm.nih.gov/rest/pug";
 
