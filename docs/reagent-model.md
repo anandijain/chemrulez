@@ -36,7 +36,15 @@ The reaction rule is the edge in the synthesis graph. A rule should match:
 - the agent roles and chemical identities,
 - conditions such as heat, solvent, acid/base strength, and workup.
 
+Reaction rules should transform molecular graph state, not rewrite SMILES strings.
+SMILES and SMARTS are acceptable as serialization, import/export, fixture, and
+eventual graph-query formats, but they should not be the product-generation
+engine. Direct string replacement is brittle around branching, aromaticity,
+stereochemistry, disconnected products, and equivalent SMILES spellings. If a
+rule cannot be implemented as a graph transform yet, prefer returning an
+explicit unsupported/no-product candidate over adding a case-specific string
+patch.
+
 This avoids making a hard distinction between "substrate molecules" and
 "reagents". The UI can still show compact named sets, but the data model should
 preserve the underlying chemicals so a user can inspect, copy, and debug a route.
-

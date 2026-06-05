@@ -3483,13 +3483,22 @@ function carbonylAmineCondensationCandidates(molecule, amine) {
 }
 
 function imineFromCarbonyl(smiles, amine) {
-  const clean = stripStereo(smiles);
-  const nSubstituent = amine.nSubstituents?.[0] || "C";
-  if (clean === "C=O") return `C=N${nSubstituent}`;
-  if (clean.includes("C(=O)")) return clean.replace("C(=O)", `C(=N${nSubstituent})`);
-  if (clean.includes("C=O")) return clean.replace("C=O", `C=N${nSubstituent}`);
-  if (clean.includes("=O")) return clean.replace("=O", `=N${nSubstituent}`);
-  return null;
+  let parsed;
+  try {
+    parsed = chem.fromSmiles(smiles);
+  } catch {
+    return null;
+  }
+
+  const carbonyl = findFirstCarbonyl(parsed.graph);
+  if (!carbonyl) return null;
+  const product = cloneGraph(parsed.graph);
+  removeGraphBond(product, carbonyl.carbon, carbonyl.oxygen);
+  const nitrogen = addGraphAtom(product, "N");
+  addGraphBond(product.bonds, carbonyl.carbon, nitrogen, 2);
+  addFragmentToAtom(product, nitrogen, amine.nSubstituents?.[0] || "C");
+  product.root = bestRootForProduct(product, carbonyl.carbon);
+  return smilesFromGraph(product);
 }
 
 function enamineFromCarbonyl(smiles, amine) {
@@ -3550,7 +3559,7 @@ function enamineProductOptions(smiles, amine) {
   try {
     parsed = chem.fromSmiles(smiles);
   } catch {
-    return fallbackEnamineProductOptions(smiles, amine);
+    return [];
   }
 
   const carbonyl = findFirstCarbonyl(parsed.graph);
@@ -3614,17 +3623,6 @@ function addFragmentToAtom(graph, atomIndex, fragmentSmiles) {
   return oldToNew.get(fragment.root ?? 0);
 }
 
-function fallbackEnamineProductOptions(smiles, amine) {
-  if (!carbonylHasAlphaHydrogen(smiles)) return [];
-  const clean = stripStereo(smiles);
-  const [first = "C", second = "C"] = amine.nSubstituents || [];
-  const amineGroup = `N(${first})${second}`;
-  if (clean === "CC=O") return [{ productSmiles: `C=C${amineGroup}`, score: 1 }];
-  if (clean.endsWith("C=O")) return [{ productSmiles: `${clean.slice(0, -3)}C=C${amineGroup}`, score: 1 }];
-  if (clean === "CC(C)=O" || clean === "CC(=O)C") return [{ productSmiles: `C=C(${amineGroup})C`, score: 2 }];
-  return [];
-}
-
 function carbonylHasAlphaHydrogen(smiles) {
   try {
     const parsed = chem.fromSmiles(smiles);
@@ -3634,7 +3632,7 @@ function carbonylHasAlphaHydrogen(smiles) {
       .filter((neighbor) => atomElement(parsed.graph.atoms[neighbor.atomIndex]) === "C")
       .some((neighbor) => implicitHydrogenCount(parsed.graph, neighbor.atomIndex) > 0);
   } catch {
-    return /CC.*=O|C.*C\(=O\)/.test(stripStereo(smiles));
+    return false;
   }
 }
 
