@@ -886,6 +886,7 @@ const tests = [
       assert.equal(context.localMoleculeFromInput("bromoethane").canonicalSmiles, "CCBr");
       assert.equal(context.localMoleculeFromInput("ethyl bromide").canonicalSmiles, "CCBr");
       assert.equal(context.localMoleculeFromInput("CO2").canonicalSmiles, "O=C=O");
+      assert.equal(context.localMoleculeFromInput("pentanal").canonicalSmiles, "CCCCC=O");
     },
   },
   {
@@ -946,9 +947,17 @@ const tests = [
       assert.equal(aldehyde.label, "Primary alcohol");
       assert.equal(aldehyde.productSmiles, "CCO");
 
+      const [pentanal] = productsFor("CCCCC=O", hydrideReduction);
+      assert.equal(pentanal.label, "Primary alcohol");
+      assert.equal(pentanal.productSmiles, "CCCCCO");
+
       const [ketone] = productsFor("CC(C)=O", hydrideReduction);
       assert.equal(ketone.label, "Secondary alcohol");
       assert.equal(ketone.productSmiles, "CC(O)C");
+
+      const [alcohol] = productsFor("CCCCCO", hydrideReduction);
+      assert.equal(alcohol.label, "No aldehyde or ketone carbonyl found");
+      assert.equal(alcohol.bucket, "none");
     },
   },
   {

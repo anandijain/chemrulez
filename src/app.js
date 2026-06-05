@@ -167,6 +167,13 @@ const localMolecules = [
     molecularWeight: "44.05",
   },
   {
+    keys: ["pentanal", "pentanaldehyde", "valeraldehyde"],
+    displayName: "Pentanal",
+    canonicalSmiles: "CCCCC=O",
+    formula: "C5H10O",
+    molecularWeight: "86.13",
+  },
+  {
     keys: ["phenethylbromide", "2phenylethylbromide", "1bromo2phenylethane", "bromoethylbenzene"],
     displayName: "Phenethyl bromide",
     canonicalSmiles: "c1ccccc1CCBr",
@@ -545,6 +552,11 @@ function uniqueMoleculesByStructure(molecules) {
 }
 
 async function fetchMoleculeWithFallback(request, rawInput) {
+  if (request.type === "name") {
+    const local = localMoleculeFromInput(rawInput);
+    if (local) return local;
+  }
+
   if (request.type === "smiles") {
     await initRDKit();
     const rdkitMolecule = moleculeFromRDKitSmiles(request.value, rawInput);
@@ -1449,8 +1461,10 @@ function findReactionCandidates(molecule, resolution) {
     if (alcoholOxidationCandidates.length) return alcoholOxidationCandidates;
   }
 
-  if (reagentIds.has("hydride_reduction") && hasCarbonyl(substrateSmiles)) {
-    return carbonylReductionCandidates(molecule);
+  if (reagentIds.has("hydride_reduction")) {
+    return hasCarbonyl(substrateSmiles)
+      ? carbonylReductionCandidates(molecule)
+      : noCarbonylReductionCandidate(molecule);
   }
 
   if (grignard && (hasCarbonyl(substrateSmiles) || isCarbonDioxide(substrateSmiles))) {
@@ -3120,6 +3134,30 @@ function carbonylReductionCandidates(molecule) {
         kind === "ketone"
           ? "Ketones reduce to secondary alcohols."
           : "Aldehydes reduce to primary alcohols.",
+      ],
+    }),
+  ];
+}
+
+function noCarbonylReductionCandidate(molecule) {
+  const smiles = reactionSmilesForMolecule(molecule);
+  return [
+    candidate({
+      id: "hydride_reduction_no_carbonyl",
+      label: "No aldehyde or ketone carbonyl found",
+      productName: molecule.displayName,
+      productSmiles: smiles,
+      bucket: "none",
+      confidence: 0.78,
+      annotations: {
+        stereochemistry: "unchanged",
+        selectivity: "none",
+        warnings: ["NaBH4/LiAlH4 reduction needs a reducible carbonyl in this rule set."],
+      },
+      explanation: [
+        "NaBH4 and LiAlH4 reduce aldehydes and ketones to alcohols.",
+        "The current substrate does not contain an aldehyde or ketone carbonyl.",
+        "If you expected pentanal, check that the active molecule is CCCCC=O rather than CCCCCO.",
       ],
     }),
   ];
