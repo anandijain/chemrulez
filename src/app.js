@@ -258,6 +258,13 @@ const localMolecules = [
     molecularWeight: "70.13",
   },
   {
+    keys: ["1methylcyclohexene", "methylcyclohexene", "1 methyl cyclohexene"],
+    displayName: "1-Methylcyclohexene",
+    canonicalSmiles: "CC1=CCCCC1",
+    formula: "C7H12",
+    molecularWeight: "96.17",
+  },
+  {
     keys: ["3methyl1butene", "3methylbut1ene", "isopropylethylene"],
     displayName: "3-Methyl-1-butene",
     canonicalSmiles: "CC(C)C=C",
@@ -1958,7 +1965,7 @@ function alkeneReactionCandidates(molecule, reagentIds) {
     return [
       candidate({
         id: "alkene_ozonolysis_reductive",
-        label: "Ozonolysis carbonyl fragments",
+        label: "Ozonolysis carbonyl products",
         productName: `${molecule.displayName} ozonolysis products`,
         productSmiles: ozonolyzeFirstAlkene(smiles),
         bucket: "high",
@@ -1971,7 +1978,7 @@ function alkeneReactionCandidates(molecule, reagentIds) {
         explanation: [
           "Ozonolysis cleaves the alkene and converts each alkene carbon into a carbonyl.",
           "Reductive workup such as DMS, Me2S, or Zn/H2O preserves aldehydes instead of oxidizing them to acids.",
-          "Multiple fragments are shown separated by dots.",
+          "Acyclic alkenes usually split into dot-separated fragments; cyclic alkenes open into one dicarbonyl chain.",
         ],
       }),
     ];
@@ -3035,7 +3042,35 @@ function smilesFromConnectedComponent(graph, root, excludedAtoms = new Set()) {
   return smilesFromGraph(component);
 }
 
+function smilesFromGraphComponents(graph, preferredRoots = []) {
+  const visited = new Set();
+  const roots = [
+    ...preferredRoots.filter((root) => Number.isInteger(root) && graph.atoms[root]),
+    ...graph.atoms.map((atom) => atom.id),
+  ];
+  const components = [];
+
+  for (const root of roots) {
+    if (visited.has(root)) continue;
+    const included = connectedAtomSet(graph, root, new Set());
+    for (const atomIndex of included) visited.add(atomIndex);
+    components.push(smilesFromGraph(graphSubgraph(graph, included, root)));
+  }
+
+  return components.filter(Boolean).join(".");
+}
+
+function hasMultipleConnectedComponents(graph) {
+  const first = graph.atoms[0]?.id;
+  if (first === undefined) return false;
+  return connectedAtomSet(graph, first, new Set()).size < graph.atoms.length;
+}
+
 function connectedComponentGraph(graph, root, excludedAtoms) {
+  return graphSubgraph(graph, connectedAtomSet(graph, root, excludedAtoms), root);
+}
+
+function connectedAtomSet(graph, root, excludedAtoms) {
   const included = new Set();
   const stack = [root];
 
@@ -3046,6 +3081,10 @@ function connectedComponentGraph(graph, root, excludedAtoms) {
     for (const neighbor of graphNeighbors(graph, atomIndex)) stack.push(neighbor.atomIndex);
   }
 
+  return included;
+}
+
+function graphSubgraph(graph, included, root) {
   const oldToNew = new Map([...included].map((atomIndex, index) => [atomIndex, index]));
   return {
     atoms: [...included].map((atomIndex, index) => ({
@@ -3061,7 +3100,7 @@ function connectedComponentGraph(graph, root, excludedAtoms) {
         direction: bond.direction || "",
         aromatic: Boolean(bond.aromatic),
       })),
-    root: oldToNew.get(root),
+    root: oldToNew.get(root) ?? 0,
     hasRings: graph.hasRings,
     hasDisconnectedComponents: false,
   };
@@ -3277,25 +3316,26 @@ function hydrateAlkyneAntiMarkovnikov(smiles) {
 }
 
 function ozonolyzeFirstAlkene(smiles) {
-  const clean = stripStereo(smiles);
-  const index = clean.indexOf("=");
-  if (index < 0) return clean;
+  let parsed;
+  try {
+    parsed = chem.fromSmiles(smiles);
+  } catch {
+    return smiles;
+  }
 
-  const left = clean.slice(0, index);
-  const right = clean.slice(index + 1);
-  return `${carbonylizeLeftAlkeneFragment(left)}.${carbonylizeRightAlkeneFragment(right)}`;
-}
+  const alkene = findFirstCarbonCarbonBondOrder(parsed.graph, 2);
+  if (!alkene) return smiles;
 
-function carbonylizeLeftAlkeneFragment(fragment) {
-  if (!fragment || fragment === "C") return "C=O";
-  if (fragment.endsWith("C")) return `${fragment}=O`;
-  return `${fragment}C=O`;
-}
-
-function carbonylizeRightAlkeneFragment(fragment) {
-  if (!fragment || fragment === "C") return "C=O";
-  if (fragment.startsWith("C")) return `O=C${fragment.slice(1)}`;
-  return `O=C${fragment}`;
+  const product = cloneGraph(parsed.graph);
+  removeGraphBond(product, alkene.from, alkene.to);
+  const oxygenA = addGraphAtom(product, "O");
+  const oxygenB = addGraphAtom(product, "O");
+  addGraphBond(product.bonds, alkene.from, oxygenA, 2);
+  addGraphBond(product.bonds, alkene.to, oxygenB, 2);
+  product.root = alkene.from;
+  product.hasRings = graphHasCycle(product.atoms, product.bonds);
+  product.hasDisconnectedComponents = hasMultipleConnectedComponents(product);
+  return smilesFromGraphComponents(product, [alkene.from, alkene.to]);
 }
 
 function hasCarbonyl(smiles) {

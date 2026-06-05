@@ -980,8 +980,21 @@ const tests = [
     name: "ozonolysis cleaves alkene into carbonyl fragments",
     run() {
       const [candidate] = productsFor("CC=C", ozone);
-      assert.equal(candidate.label, "Ozonolysis carbonyl fragments");
-      assert.equal(candidate.productSmiles, "CC=O.C=O");
+      assert.equal(candidate.label, "Ozonolysis carbonyl products");
+      assert.equal(candidate.productSmiles, "C(=O)C.C=O");
+    },
+  },
+  {
+    name: "ozonolysis opens cycloalkenes to dicarbonyl chains",
+    run() {
+      assert.equal(context.localMoleculeFromInput("methylcyclohexene").canonicalSmiles, "CC1=CCCCC1");
+      const [cyclohexene] = productsFor("C1=CCCCC1", ozone);
+      assert.equal(cyclohexene.productSmiles, "C(=O)CCCCC=O");
+      assert.equal(cyclohexene.productSmiles.includes("."), false);
+
+      const [methylcyclohexene] = productsFor("CC1=CCCCC1", ozone);
+      assert.equal(methylcyclohexene.productSmiles, "C(CCCCC=O)(=O)C");
+      assert.equal(methylcyclohexene.productSmiles.includes("."), false);
     },
   },
   {
