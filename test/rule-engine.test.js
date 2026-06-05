@@ -1075,6 +1075,20 @@ const tests = [
     },
   },
   {
+    name: "LiAlH4 reduces esters to alcohol fragments",
+    run() {
+      assert.equal(context.localMoleculeFromInput("methyl acetate").canonicalSmiles, "CC(=O)OC");
+      const [candidate] = productsFor("CC(=O)OC", LiAlH4);
+      assert.equal(candidate.label, "Ester reduction to alcohols");
+      assert.equal(candidate.productSmiles, "C(O)C.CO");
+      assert.equal(candidate.annotations.mechanism, "ester reduction to alcohols");
+
+      const [borohydride] = productsFor("CC(=O)OC", NaBH4);
+      assert.equal(borohydride.label, "No aldehyde or ketone carbonyl found");
+      assert.equal(borohydride.bucket, "none");
+    },
+  },
+  {
     name: "Friedel-Crafts acylation uses AlCl3 plus acid chloride co-reagent",
     run() {
       assert.equal(context.resolveKnownReagent("AlCl3").id, "friedel_crafts_acylation");

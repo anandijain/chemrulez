@@ -202,6 +202,20 @@ const localMolecules = [
     molecularWeight: "78.50",
   },
   {
+    keys: ["methylacetate", "methyl acetate"],
+    displayName: "Methyl acetate",
+    canonicalSmiles: "CC(=O)OC",
+    formula: "C3H6O2",
+    molecularWeight: "74.08",
+  },
+  {
+    keys: ["ethylacetate", "ethyl acetate"],
+    displayName: "Ethyl acetate",
+    canonicalSmiles: "CC(=O)OCC",
+    formula: "C4H8O2",
+    molecularWeight: "88.11",
+  },
+  {
     keys: ["methylamine", "methanamine"],
     displayName: "Methylamine",
     canonicalSmiles: "CN",
@@ -1582,8 +1596,12 @@ function findReactionCandidates(molecule, resolution) {
     return esterDibalReductionCandidates(molecule);
   }
 
+  if (reagentIds.has("lithium_aluminum_hydride") && hasEster(substrateSmiles)) {
+    return esterLahReductionCandidates(molecule);
+  }
+
   if (hydrideReagent) {
-    return hasCarbonyl(substrateSmiles)
+    return hasAldehydeOrKetone(substrateSmiles)
       ? carbonylReductionCandidates(molecule, hydrideReagent)
       : noCarbonylReductionCandidate(molecule, hydrideReagent);
   }
@@ -3289,6 +3307,14 @@ function hasCarbonyl(smiles) {
   }
 }
 
+function hasAldehydeOrKetone(smiles) {
+  try {
+    return Boolean(findFirstAldehydeOrKetoneCarbonyl(chem.fromSmiles(smiles).graph));
+  } catch {
+    return false;
+  }
+}
+
 function hasEster(smiles) {
   try {
     return Boolean(findFirstEster(chem.fromSmiles(smiles).graph));
@@ -3341,6 +3367,54 @@ function esterDibalReductionCandidates(molecule) {
         "DIBAL-H at -78 C can stop ester reduction at the aldehyde after workup.",
         "The acyl side becomes the aldehyde; the alkoxy side is shown as the alcohol fragment.",
         "Choose the aldehyde fragment if that is the synthesis path you want to continue.",
+      ],
+    }),
+  ];
+}
+
+function esterLahReductionCandidates(molecule) {
+  const smiles = reactionSmilesForMolecule(molecule);
+  const productSmiles = reduceFirstEsterToAlcoholFragments(smiles);
+  if (!productSmiles) {
+    return [
+      candidate({
+        id: "lah_ester_reduction_no_product",
+        label: "No ester reduction product",
+        productName: molecule.displayName,
+        productSmiles: smiles,
+        bucket: "none",
+        confidence: 0.45,
+        annotations: {
+          stereochemistry: "unchanged at nonreacting centers",
+          selectivity: "none",
+          warnings: ["The app found an ester but could not serialize the LAH alcohol fragments."],
+        },
+        explanation: [
+          "LiAlH4 reduces esters past the aldehyde stage after acid workup.",
+          "This substrate was outside the currently serializable ester-reduction subset.",
+        ],
+      }),
+    ];
+  }
+
+  return [
+    candidate({
+      id: "lah_ester_to_alcohols",
+      label: "Ester reduction to alcohols",
+      productName: `${molecule.displayName} LAH alcohol fragments`,
+      productSmiles,
+      bucket: "high",
+      confidence: 0.82,
+      annotations: {
+        stereochemistry: "unchanged at nonreacting centers",
+        selectivity: "strong hydride reduction",
+        mechanism: "ester reduction to alcohols",
+        warnings: ["The acyl-derived primary alcohol and alkoxy-derived alcohol are shown as separate fragments."],
+      },
+      explanation: [
+        "LiAlH4 reduces esters all the way to alcohols after acid workup.",
+        "The acyl side becomes a primary alcohol; the alkoxy side becomes the corresponding alcohol fragment.",
+        "DIBAL-H at low temperature is the selective rule that stops at the aldehyde stage.",
       ],
     }),
   ];
@@ -3639,7 +3713,7 @@ function carbonylHasAlphaHydrogen(smiles) {
 function carbonylKind(smiles) {
   try {
     const parsed = chem.fromSmiles(smiles);
-    const carbonyl = findFirstCarbonyl(parsed.graph);
+    const carbonyl = findFirstAldehydeOrKetoneCarbonyl(parsed.graph);
     if (!carbonyl) return "aldehyde";
     const carbonNeighbors = graphNeighbors(parsed.graph, carbonyl.carbon)
       .filter((neighbor) => neighbor.atomIndex !== carbonyl.oxygen)
@@ -3653,7 +3727,7 @@ function carbonylKind(smiles) {
 function reduceFirstCarbonylToAlcohol(smiles) {
   try {
     const parsed = chem.fromSmiles(smiles);
-    const carbonyl = findFirstCarbonyl(parsed.graph);
+    const carbonyl = findFirstAldehydeOrKetoneCarbonyl(parsed.graph);
     if (!carbonyl) return null;
     const product = cloneGraph(parsed.graph);
     const bond = graphBondBetween(product, carbonyl.carbon, carbonyl.oxygen);
@@ -3744,6 +3818,31 @@ function reduceFirstEsterToAldehydeFragments(smiles) {
   return null;
 }
 
+function reduceFirstEsterToAlcoholFragments(smiles) {
+  try {
+    const parsed = chem.fromSmiles(smiles);
+    const ester = findFirstEster(parsed.graph);
+    if (!ester) return null;
+    const product = cloneGraph(parsed.graph);
+    removeGraphBond(product, ester.carbonylCarbon, ester.alkoxyOxygen);
+    const carbonylBond = graphBondBetween(product, ester.carbonylCarbon, ester.carbonylOxygen);
+    if (!carbonylBond) return null;
+    carbonylBond.order = 1;
+
+    const acylRoot = graphNeighbors(product, ester.carbonylCarbon)
+      .find((neighbor) => neighbor.atomIndex !== ester.carbonylOxygen && atomElement(product.atoms[neighbor.atomIndex]) === "C")
+      ?.atomIndex || ester.carbonylCarbon;
+    const alkoxyRoot = graphNeighbors(product, ester.alkoxyOxygen)
+      .find((neighbor) => atomElement(product.atoms[neighbor.atomIndex]) === "C")
+      ?.atomIndex || ester.alkoxyOxygen;
+    const acylAlcohol = smilesFromConnectedComponent(product, acylRoot, new Set());
+    const alkoxyAlcohol = smilesFromConnectedComponent(product, alkoxyRoot, new Set());
+    return [acylAlcohol, alkoxyAlcohol].filter(Boolean).join(".");
+  } catch {
+    return null;
+  }
+}
+
 function normalizeAldehydeSmiles(smiles) {
   const leadingCarbonyl = smiles.match(/^C\(=O\)(.+)$/);
   if (leadingCarbonyl) return `${leadingCarbonyl[1]}C=O`;
@@ -3773,6 +3872,21 @@ function findFirstAldehydeCarbonyl(graph) {
       .filter((neighbor) => atomElement(graph.atoms[neighbor.atomIndex]) !== "C")
       .length;
     return carbonNeighbors <= 1 && heteroSingleNeighbors === 0;
+  }) || null;
+}
+
+function findFirstAldehydeOrKetoneCarbonyl(graph) {
+  return carbonylsInGraph(graph).find((carbonyl) => {
+    const neighbors = graphNeighbors(graph, carbonyl.carbon)
+      .filter((neighbor) => neighbor.atomIndex !== carbonyl.oxygen);
+    const carbonNeighbors = neighbors
+      .filter((neighbor) => atomElement(graph.atoms[neighbor.atomIndex]) === "C")
+      .length;
+    const heteroSingleNeighbors = neighbors
+      .filter((neighbor) => neighbor.bond.order === 1)
+      .filter((neighbor) => atomElement(graph.atoms[neighbor.atomIndex]) !== "C")
+      .length;
+    return carbonNeighbors <= 2 && heteroSingleNeighbors === 0;
   }) || null;
 }
 
