@@ -1432,6 +1432,7 @@ function findReactionCandidates(molecule, resolution) {
   const structuralCarbonyl = reagents.find((reagent) => reagentIsCarbonylPartner(reagent));
   const nucleophile = reagents.find((reagent) => reagentHasRole(reagent, "nucleophile"));
   const reagentIds = new Set(reagents.map((reagent) => reagent.id));
+  const hydrideReagent = reagents.find((reagent) => isCarbonylHydrideReagent(reagent.id));
   const baseStrength = baseStrengthForReagents(reagents);
   const substrateAlkylHalide = classifyAlkylHalide(molecule, molecule.displayName || molecule.canonicalSmiles);
   const substrateGrignard = classifyGrignard(molecule, molecule.displayName || molecule.canonicalSmiles);
@@ -1461,10 +1462,14 @@ function findReactionCandidates(molecule, resolution) {
     if (alcoholOxidationCandidates.length) return alcoholOxidationCandidates;
   }
 
-  if (reagentIds.has("hydride_reduction")) {
+  if (reagentIds.has("dibal_ester_reduction")) {
+    return esterDibalReductionCandidates(molecule);
+  }
+
+  if (hydrideReagent) {
     return hasCarbonyl(substrateSmiles)
-      ? carbonylReductionCandidates(molecule)
-      : noCarbonylReductionCandidate(molecule);
+      ? carbonylReductionCandidates(molecule, hydrideReagent)
+      : noCarbonylReductionCandidate(molecule, hydrideReagent);
   }
 
   if (grignard && (hasCarbonyl(substrateSmiles) || isCarbonDioxide(substrateSmiles))) {
@@ -3088,7 +3093,68 @@ function hasCarbonyl(smiles) {
   }
 }
 
-function carbonylReductionCandidates(molecule) {
+function hasEster(smiles) {
+  try {
+    return Boolean(findFirstEster(chem.fromSmiles(smiles).graph));
+  } catch {
+    const clean = stripStereo(smiles);
+    return /C\(=O\)O[A-Z]?C|C\(=O\)OC|C\(=O\)O\(/.test(clean);
+  }
+}
+
+function esterDibalReductionCandidates(molecule) {
+  const smiles = reactionSmilesForMolecule(molecule);
+  if (!hasEster(smiles)) {
+    return [
+      candidate({
+        id: "dibal_no_ester",
+        label: "No ester found",
+        productName: molecule.displayName,
+        productSmiles: smiles,
+        bucket: "none",
+        confidence: 0.74,
+        annotations: {
+          stereochemistry: "unchanged",
+          selectivity: "none",
+          warnings: ["DIBAL-H ester-to-aldehyde reduction needs an ester in this rule set."],
+        },
+        explanation: [
+          "DIBAL-H at low temperature is used here for selective ester reduction.",
+          "The current graph did not find an ester carbonyl attached to an alkoxy oxygen.",
+        ],
+      }),
+    ];
+  }
+
+  const productSmiles = reduceFirstEsterToAldehydeFragments(smiles);
+  return [
+    candidate({
+      id: "dibal_ester_to_aldehyde",
+      label: "Ester reduction to aldehyde",
+      productName: `${molecule.displayName} DIBAL-H fragments`,
+      productSmiles: productSmiles || smiles,
+      bucket: productSmiles ? "high" : "none",
+      confidence: productSmiles ? 0.78 : 0.36,
+      annotations: {
+        stereochemistry: "unchanged at nonreacting centers",
+        selectivity: "chemoselective",
+        mechanism: "selective ester reduction",
+        warnings: ["This simplified rule assumes controlled cold DIBAL-H conditions and acid workup."],
+      },
+      explanation: [
+        "DIBAL-H at -78 C can stop ester reduction at the aldehyde after workup.",
+        "The acyl side becomes the aldehyde; the alkoxy side is shown as the alcohol fragment.",
+        "Choose the aldehyde fragment if that is the synthesis path you want to continue.",
+      ],
+    }),
+  ];
+}
+
+function isCarbonylHydrideReagent(reagentId) {
+  return reagentId === "sodium_borohydride" || reagentId === "lithium_aluminum_hydride";
+}
+
+function carbonylReductionCandidates(molecule, reagent = { canonical: "hydride reagent" }) {
   const smiles = reactionSmilesForMolecule(molecule);
   const productSmiles = reduceFirstCarbonylToAlcohol(smiles);
   if (!productSmiles) {
@@ -3106,7 +3172,7 @@ function carbonylReductionCandidates(molecule) {
           warnings: ["The app recognized a carbonyl but could not serialize the alcohol product."],
         },
         explanation: [
-          "NaBH4 and LiAlH4 reduce aldehydes and ketones to alcohols.",
+          `${reagent.canonical} reduces aldehydes and ketones to alcohols in the current rule set.`,
           "This structure was outside the current serializer's carbonyl-reduction subset.",
         ],
       }),
@@ -3129,7 +3195,7 @@ function carbonylReductionCandidates(molecule) {
         warnings: kind === "ketone" ? ["New stereocenters from planar ketones are not yet encoded as racemic pairs."] : [],
       },
       explanation: [
-        "NaBH4 and LiAlH4 deliver hydride to aldehydes and ketones.",
+        `${reagent.canonical} delivers hydride to aldehydes and ketones in this scope.`,
         "Acid/protic workup gives the alcohol.",
         kind === "ketone"
           ? "Ketones reduce to secondary alcohols."
@@ -3139,7 +3205,7 @@ function carbonylReductionCandidates(molecule) {
   ];
 }
 
-function noCarbonylReductionCandidate(molecule) {
+function noCarbonylReductionCandidate(molecule, reagent = { canonical: "NaBH4/LiAlH4" }) {
   const smiles = reactionSmilesForMolecule(molecule);
   return [
     candidate({
@@ -3152,10 +3218,10 @@ function noCarbonylReductionCandidate(molecule) {
       annotations: {
         stereochemistry: "unchanged",
         selectivity: "none",
-        warnings: ["NaBH4/LiAlH4 reduction needs a reducible carbonyl in this rule set."],
+        warnings: [`${reagent.canonical} reduction needs a reducible carbonyl in this rule set.`],
       },
       explanation: [
-        "NaBH4 and LiAlH4 reduce aldehydes and ketones to alcohols.",
+        `${reagent.canonical} reduces aldehydes and ketones to alcohols in the current rule set.`,
         "The current substrate does not contain an aldehyde or ketone carbonyl.",
         "If you expected pentanal, check that the active molecule is CCCCC=O rather than CCCCCO.",
       ],
@@ -3199,6 +3265,40 @@ function reduceFirstCarbonylToAlcohol(smiles) {
   return null;
 }
 
+function reduceFirstEsterToAldehydeFragments(smiles) {
+  try {
+    const parsed = chem.fromSmiles(smiles);
+    const ester = findFirstEster(parsed.graph);
+    if (!ester) return null;
+    const product = cloneGraph(parsed.graph);
+    removeGraphBond(product, ester.carbonylCarbon, ester.alkoxyOxygen);
+    const aldehydeRoot = graphNeighbors(product, ester.carbonylCarbon)
+      .find((neighbor) => neighbor.atomIndex !== ester.carbonylOxygen && atomElement(product.atoms[neighbor.atomIndex]) === "C")
+      ?.atomIndex || ester.carbonylCarbon;
+    const alcoholRoot = graphNeighbors(product, ester.alkoxyOxygen)
+      .find((neighbor) => atomElement(product.atoms[neighbor.atomIndex]) === "C")
+      ?.atomIndex || ester.alkoxyOxygen;
+    const aldehyde = normalizeAldehydeSmiles(smilesFromConnectedComponent(product, aldehydeRoot, new Set()));
+    const alcohol = smilesFromConnectedComponent(product, alcoholRoot, new Set());
+    return [aldehyde, alcohol].filter(Boolean).join(".");
+  } catch {
+    const clean = stripStereo(smiles);
+    const simple = clean.match(/^(.+)C\(=O\)OC(.*)$/);
+    if (simple) {
+      const acyl = simple[1] ? `${simple[1]}C=O` : "C=O";
+      const alkoxy = simple[2] ? `CO${simple[2]}` : "CO";
+      return `${acyl}.${alkoxy}`;
+    }
+  }
+  return null;
+}
+
+function normalizeAldehydeSmiles(smiles) {
+  const leadingCarbonyl = smiles.match(/^C\(=O\)(.+)$/);
+  if (leadingCarbonyl) return `${leadingCarbonyl[1]}C=O`;
+  return smiles;
+}
+
 function findFirstCarbonyl(graph) {
   for (const bond of graph.bonds) {
     if (bond.order !== 2) continue;
@@ -3208,6 +3308,47 @@ function findFirstCarbonyl(graph) {
     if (atomElement(from) === "O" && atomElement(to) === "C") return { carbon: bond.to, oxygen: bond.from };
   }
   return null;
+}
+
+function findFirstEster(graph) {
+  for (const carbonyl of carbonylsInGraph(graph)) {
+    const alkoxy = graphNeighbors(graph, carbonyl.carbon)
+      .filter((neighbor) => neighbor.atomIndex !== carbonyl.oxygen)
+      .filter((neighbor) => neighbor.bond.order === 1)
+      .find((neighbor) => {
+        const atom = graph.atoms[neighbor.atomIndex];
+        if (atomElement(atom) !== "O") return false;
+        return graphNeighbors(graph, neighbor.atomIndex)
+          .some((oxygenNeighbor) => {
+            return oxygenNeighbor.atomIndex !== carbonyl.carbon
+              && oxygenNeighbor.bond.order === 1
+              && atomElement(graph.atoms[oxygenNeighbor.atomIndex]) === "C";
+          });
+      });
+    if (alkoxy) {
+      return {
+        carbonylCarbon: carbonyl.carbon,
+        carbonylOxygen: carbonyl.oxygen,
+        alkoxyOxygen: alkoxy.atomIndex,
+      };
+    }
+  }
+  return null;
+}
+
+function carbonylsInGraph(graph) {
+  const carbonyls = [];
+  for (const bond of graph.bonds) {
+    if (bond.order !== 2) continue;
+    const from = graph.atoms[bond.from];
+    const to = graph.atoms[bond.to];
+    if (atomElement(from) === "C" && atomElement(to) === "O") {
+      carbonyls.push({ carbon: bond.from, oxygen: bond.to });
+    } else if (atomElement(from) === "O" && atomElement(to) === "C") {
+      carbonyls.push({ carbon: bond.to, oxygen: bond.from });
+    }
+  }
+  return carbonyls;
 }
 
 function isCarbonDioxide(smiles) {

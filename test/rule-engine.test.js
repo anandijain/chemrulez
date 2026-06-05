@@ -139,7 +139,9 @@ const Br2 = reagent("br2", "Br2", "halogenation");
 const mcpba = reagent("mcpba", "mCPBA", "epoxidation");
 const OsO4 = reagent("oso4", "OsO4", "syn dihydroxylation");
 const ozone = reagent("ozonolysis_reductive", "1. O3  2. DMS", "reductive ozonolysis");
-const hydrideReduction = reagent("hydride_reduction", "NaBH4", "carbonyl hydride reduction");
+const NaBH4 = reagent("sodium_borohydride", "NaBH4", "mild carbonyl hydride reduction");
+const LiAlH4 = reagent("lithium_aluminum_hydride", "1. LiAlH4  2. H3O+", "strong hydride reduction");
+const DIBAL = reagent("dibal_ester_reduction", "1. DIBAL-H, toluene, -78 C  2. H3O+", "selective ester reduction");
 const methylGrignard = reagent("local_grignard_methyl", "CH3MgBr, H3O+", "Grignard addition");
 methylGrignard.organoSmiles = "C";
 const phenylGrignard = reagent("local_grignard_phenyl", "PhMgBr, H3O+", "Grignard addition");
@@ -940,24 +942,36 @@ const tests = [
   {
     name: "hydride reagents reduce aldehydes and ketones to alcohols",
     run() {
-      assert.equal(context.resolveKnownReagent("NaBH4").id, "hydride_reduction");
-      assert.equal(context.resolveKnownReagent("lithium aluminum hydride").id, "hydride_reduction");
+      assert.equal(context.resolveKnownReagent("NaBH4").id, "sodium_borohydride");
+      assert.equal(context.resolveKnownReagent("lithium aluminum hydride").id, "lithium_aluminum_hydride");
+      assert.equal(context.resolveKnownReagent("NaBH4").canonical, "NaBH4");
+      assert.equal(context.resolveKnownReagent("lithium aluminum hydride").canonical, "1. LiAlH4  2. H3O+");
 
-      const [aldehyde] = productsFor("CC=O", hydrideReduction);
+      const [aldehyde] = productsFor("CC=O", NaBH4);
       assert.equal(aldehyde.label, "Primary alcohol");
       assert.equal(aldehyde.productSmiles, "CCO");
 
-      const [pentanal] = productsFor("CCCCC=O", hydrideReduction);
+      const [pentanal] = productsFor("CCCCC=O", NaBH4);
       assert.equal(pentanal.label, "Primary alcohol");
       assert.equal(pentanal.productSmiles, "CCCCCO");
 
-      const [ketone] = productsFor("CC(C)=O", hydrideReduction);
+      const [ketone] = productsFor("CC(C)=O", LiAlH4);
       assert.equal(ketone.label, "Secondary alcohol");
       assert.equal(ketone.productSmiles, "CC(O)C");
 
-      const [alcohol] = productsFor("CCCCCO", hydrideReduction);
+      const [alcohol] = productsFor("CCCCCO", NaBH4);
       assert.equal(alcohol.label, "No aldehyde or ketone carbonyl found");
       assert.equal(alcohol.bucket, "none");
+    },
+  },
+  {
+    name: "DIBAL-H selectively reduces esters to aldehyde fragments",
+    run() {
+      assert.equal(context.resolveKnownReagent("DIBAL-H").id, "dibal_ester_reduction");
+      const [candidate] = productsFor("CC(=O)OC", DIBAL);
+      assert.equal(candidate.label, "Ester reduction to aldehyde");
+      assert.equal(candidate.productSmiles, "CC=O.CO");
+      assert.equal(candidate.annotations.mechanism, "selective ester reduction");
     },
   },
   {
