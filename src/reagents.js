@@ -286,6 +286,19 @@ export const reagentAliases = [
     ],
   },
   {
+    id: "friedel_crafts_acylation",
+    canonical: "AlCl3",
+    kind: "Friedel-Crafts acylation conditions",
+    aliases: [
+      "alcl3",
+      "aluminum chloride",
+      "aluminium chloride",
+      "friedel crafts acylation",
+      "friedel-crafts acylation",
+      "fc acylation",
+    ],
+  },
+  {
     id: "grignard_workup",
     canonical: "RMgX, H3O+",
     kind: "Grignard addition",

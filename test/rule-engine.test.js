@@ -142,6 +142,9 @@ const ozone = reagent("ozonolysis_reductive", "1. O3  2. DMS", "reductive ozonol
 const NaBH4 = reagent("sodium_borohydride", "NaBH4", "mild carbonyl hydride reduction");
 const LiAlH4 = reagent("lithium_aluminum_hydride", "1. LiAlH4  2. H3O+", "strong hydride reduction");
 const DIBAL = reagent("dibal_ester_reduction", "1. DIBAL-H, toluene, -78 C  2. H3O+", "selective ester reduction");
+const AlCl3 = reagent("friedel_crafts_acylation", "AlCl3", "Friedel-Crafts acylation conditions");
+const acetylChloride = reagent("acid_chloride_acetyl_chloride", "Acetyl chloride", "acid chloride acyl donor");
+acetylChloride.molecule = { displayName: "Acetyl chloride", canonicalSmiles: "CC(=O)Cl" };
 const methylGrignard = reagent("local_grignard_methyl", "CH3MgBr, H3O+", "Grignard addition");
 methylGrignard.organoSmiles = "C";
 const phenylGrignard = reagent("local_grignard_phenyl", "PhMgBr, H3O+", "Grignard addition");
@@ -972,6 +975,25 @@ const tests = [
       assert.equal(candidate.label, "Ester reduction to aldehyde");
       assert.equal(candidate.productSmiles, "CC=O.CO");
       assert.equal(candidate.annotations.mechanism, "selective ester reduction");
+    },
+  },
+  {
+    name: "Friedel-Crafts acylation uses AlCl3 plus acid chloride co-reagent",
+    run() {
+      assert.equal(context.resolveKnownReagent("AlCl3").id, "friedel_crafts_acylation");
+      assert.equal(context.localMoleculeFromInput("benzene").canonicalSmiles, "c1ccccc1");
+      assert.equal(context.localMoleculeFromInput("acetyl chloride").canonicalSmiles, "CC(=O)Cl");
+
+      const classified = context.classifyAcidChloride(
+        context.localMoleculeFromInput("acetyl chloride"),
+        "acetyl chloride",
+      );
+      assert.equal(classified.kind, "acid chloride acyl donor");
+
+      const [candidate] = productsFor("c1ccccc1", AlCl3, acetylChloride);
+      assert.equal(candidate.label, "Friedel-Crafts acylation product");
+      assert.equal(candidate.productSmiles, "c1c(C(=O)C)cccc1");
+      assert.equal(candidate.annotations.mechanism, "Friedel-Crafts acylation");
     },
   },
   {

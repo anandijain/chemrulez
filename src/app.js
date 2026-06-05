@@ -174,6 +174,20 @@ const localMolecules = [
     molecularWeight: "86.13",
   },
   {
+    keys: ["benzene"],
+    displayName: "Benzene",
+    canonicalSmiles: "c1ccccc1",
+    formula: "C6H6",
+    molecularWeight: "78.11",
+  },
+  {
+    keys: ["acetylchloride", "ethanoylchloride", "ethanoyl chloride"],
+    displayName: "Acetyl chloride",
+    canonicalSmiles: "CC(=O)Cl",
+    formula: "C2H3ClO",
+    molecularWeight: "78.50",
+  },
+  {
     keys: ["phenethylbromide", "2phenylethylbromide", "1bromo2phenylethane", "bromoethylbenzene"],
     displayName: "Phenethyl bromide",
     canonicalSmiles: "c1ccccc1CCBr",
@@ -1345,6 +1359,8 @@ async function resolveStructuralReagent(input) {
     const molecule = await fetchMoleculeLenient(input);
     const grignard = classifyGrignard(molecule, input);
     if (grignard) return grignard;
+    const acidChloride = classifyAcidChloride(molecule, input);
+    if (acidChloride) return acidChloride;
     const alkylHalide = classifyAlkylHalide(molecule, input);
     if (alkylHalide) return alkylHalide;
     return {
@@ -1429,6 +1445,7 @@ function findReactionCandidates(molecule, resolution) {
   const sodiumAmide = reagents.find((reagent) => reagent.id === "sodium_amide");
   const alkylHalide = reagents.find((reagent) => reagent.kind.includes("alkyl halide"));
   const grignard = reagents.find((reagent) => reagent.kind.includes("Grignard"));
+  const acidChloride = reagents.find((reagent) => reagent.kind === "acid chloride acyl donor");
   const structuralCarbonyl = reagents.find((reagent) => reagentIsCarbonylPartner(reagent));
   const nucleophile = reagents.find((reagent) => reagentHasRole(reagent, "nucleophile"));
   const reagentIds = new Set(reagents.map((reagent) => reagent.id));
@@ -1450,6 +1467,10 @@ function findReactionCandidates(molecule, resolution) {
         ...candidate.explanation,
       ],
     }));
+  }
+
+  if (reagentIds.has("friedel_crafts_acylation") && acidChloride) {
+    return friedelCraftsAcylationCandidates(molecule, acidChloride);
   }
 
   if (reagentIds.has("pbr3") || reagentIds.has("socl2") || reagentIds.has("tosyl_chloride")) {
@@ -2124,6 +2145,49 @@ function classifyAlkylHalide(molecule, input) {
     molecule,
     sn2Quality: quality,
   };
+}
+
+function classifyAcidChloride(molecule, input) {
+  let parsed;
+  try {
+    parsed = chem.fromSmiles(reactionSmilesForMolecule(molecule));
+  } catch {
+    return null;
+  }
+
+  const acidChloride = findFirstAcidChloride(parsed.graph);
+  if (!acidChloride) return null;
+
+  return {
+    id: `acid_chloride_${molecule.cid || normalizeText(input)}`,
+    canonical: molecule.displayName || input,
+    kind: "acid chloride acyl donor",
+    molecule,
+    acylSmiles: acidChlorideAcylSmiles(parsed.graph, acidChloride),
+  };
+}
+
+function findFirstAcidChloride(graph) {
+  for (const carbonyl of carbonylsInGraph(graph)) {
+    const chloride = graphNeighbors(graph, carbonyl.carbon)
+      .filter((neighbor) => neighbor.atomIndex !== carbonyl.oxygen)
+      .filter((neighbor) => neighbor.bond.order === 1)
+      .find((neighbor) => atomElement(graph.atoms[neighbor.atomIndex]) === "CL");
+    if (chloride) {
+      return {
+        carbonylCarbon: carbonyl.carbon,
+        carbonylOxygen: carbonyl.oxygen,
+        chloride: chloride.atomIndex,
+      };
+    }
+  }
+  return null;
+}
+
+function acidChlorideAcylSmiles(graph, acidChloride) {
+  const product = cloneGraph(graph);
+  removeGraphBond(product, acidChloride.carbonylCarbon, acidChloride.chloride);
+  return smilesFromConnectedComponent(product, acidChloride.carbonylCarbon, new Set([acidChloride.chloride]));
 }
 
 function classifyAlkylHalideFromGraph(molecule, input) {
@@ -3473,6 +3537,98 @@ function grignardFormationCandidates(molecule, alkylHalide) {
       ],
     }),
   ];
+}
+
+function friedelCraftsAcylationCandidates(molecule, acidChloride) {
+  const productSmiles = acylateFirstAromaticRing(reactionSmilesForMolecule(molecule), acidChloride.molecule?.canonicalSmiles);
+  if (!productSmiles) {
+    return [
+      candidate({
+        id: "friedel_crafts_no_aromatic_substrate",
+        label: "No Friedel-Crafts acylation product",
+        productName: molecule.displayName,
+        productSmiles: reactionSmilesForMolecule(molecule),
+        bucket: "none",
+        confidence: 0.56,
+        annotations: {
+          stereochemistry: "unchanged",
+          selectivity: "none",
+          warnings: ["No suitable aromatic C-H site was found, or the acid chloride could not be parsed."],
+        },
+        explanation: [
+          "Friedel-Crafts acylation needs an aromatic substrate and an acid chloride acyl donor.",
+          `${acidChloride.canonical} was treated as the acyl donor.`,
+          "Substituent directing/deactivation rules are not yet modeled.",
+        ],
+      }),
+    ];
+  }
+
+  return [
+    candidate({
+      id: `friedel_crafts_acylation_${acidChloride.id}`,
+      label: "Friedel-Crafts acylation product",
+      productName: `${molecule.displayName} acylation product`,
+      productSmiles,
+      bucket: "high",
+      confidence: 0.72,
+      annotations: {
+        stereochemistry: "unchanged",
+        selectivity: "single for unsubstituted benzene",
+        mechanism: "Friedel-Crafts acylation",
+        warnings: ["Ring substituent directing/deactivation effects are not yet encoded."],
+      },
+      explanation: [
+        "AlCl3 activates the acid chloride to an acylium-like electrophile.",
+        `${acidChloride.canonical} supplies the acyl group.`,
+        "The aromatic ring undergoes electrophilic aromatic substitution to install the acyl group.",
+      ],
+    }),
+  ];
+}
+
+function acylateFirstAromaticRing(aromaticSmiles, acidChlorideSmiles) {
+  let aromatic;
+  let acyl;
+  try {
+    aromatic = chem.fromSmiles(aromaticSmiles);
+    acyl = chem.fromSmiles(acidChlorideSmiles);
+  } catch {
+    return null;
+  }
+
+  const aromaticCarbon = aromatic.graph.atoms.find((atom) => {
+    return atom.token === "c"
+      && implicitHydrogenCount(aromatic.graph, atom.id) > 0;
+  });
+  const acidChloride = findFirstAcidChloride(acyl.graph);
+  if (!aromaticCarbon || !acidChloride) return null;
+
+  const product = cloneGraph(aromatic.graph);
+  const oldToNew = new Map();
+  for (const atom of acyl.graph.atoms) {
+    if (atom.id === acidChloride.chloride) continue;
+    const newId = product.atoms.length;
+    oldToNew.set(atom.id, newId);
+    product.atoms.push({ ...atom, id: newId });
+  }
+
+  for (const bond of acyl.graph.bonds) {
+    if (bond.from === acidChloride.chloride || bond.to === acidChloride.chloride) continue;
+    product.bonds.push({
+      from: oldToNew.get(bond.from),
+      to: oldToNew.get(bond.to),
+      order: bond.order,
+      direction: bond.direction || "",
+      aromatic: Boolean(bond.aromatic),
+    });
+  }
+
+  addGraphBond(product.bonds, aromaticCarbon.id, oldToNew.get(acidChloride.carbonylCarbon), 1);
+  product.root = bestRootForProduct(product, aromaticCarbon.id);
+  product.hasDisconnectedComponents = false;
+  product.hasRings = graphHasCycle(product.atoms, product.bonds);
+  return normalizeAldehydeSmiles(smilesFromGraph(product));
 }
 
 function alcoholActivationCandidatesForReagents(molecule, reagentIds) {
