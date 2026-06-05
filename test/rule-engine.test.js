@@ -1147,7 +1147,10 @@ const tests = [
     name: "mild and strong alcohol oxidations handle primary and secondary alcohols",
     run() {
       assert.equal(context.resolveKnownReagent("swern oxidation").canonical, "1. (COCl)2, DMSO  2. Et3N");
+      assert.deepEqual(Array.from(context.resolveKnownReagent("swern oxidation").acceptedLabels), ["Swern oxidation"]);
       assert.equal(context.resolveKnownReagent("dess martin").canonical, "DMP, CH2Cl2");
+      assert.deepEqual(Array.from(context.resolveKnownReagent("dess martin").acceptedLabels), ["DMP", "Dess-Martin"]);
+      assert.deepEqual(Array.from(context.resolveKnownReagent("jones oxidation").acceptedLabels), ["Jones oxidation", "Na2Cr2O7, H2SO4"]);
 
       const [aldehyde] = productsFor("CCCO", PCC);
       assert.equal(aldehyde.label, "Aldehyde");

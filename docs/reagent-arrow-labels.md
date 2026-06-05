@@ -4,6 +4,11 @@ These are the current canonical labels chemrulez should show in reagent chips,
 path steps, and copied routes. They are meant to be close to what a student would
 write over the reaction arrow on an exam.
 
+For well-known named reagents, the app may also show accepted/common labels in
+the reagent preview. The canonical label should stay chemically explicit, while
+the accepted label can match what a course commonly accepts, such as `Swern
+oxidation`, `DMP`, `PCC`, `Jones oxidation`, or `DIBAL-H`.
+
 | Transform | Arrow label |
 | --- | --- |
 | Terminal alkyne deprotonation | `NaNH2` |

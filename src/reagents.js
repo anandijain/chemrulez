@@ -42,6 +42,7 @@ export const reagentAliases = [
   {
     id: "lindlar",
     canonical: "H2, Lindlar",
+    acceptedLabels: ["Lindlar"],
     kind: "syn partial alkyne hydrogenation",
     aliases: ["lindlar", "h2 lindlar", "lindlar catalyst", "poisoned catalyst"],
   },
@@ -195,6 +196,7 @@ export const reagentAliases = [
   {
     id: "mcpba",
     canonical: "mCPBA",
+    acceptedLabels: ["mCPBA"],
     kind: "epoxidation",
     aliases: ["mcpba", "m-cpba", "peroxyacid", "peracid"],
   },
@@ -237,24 +239,28 @@ export const reagentAliases = [
   {
     id: "pcc",
     canonical: "PCC, CH2Cl2",
+    acceptedLabels: ["PCC"],
     kind: "mild alcohol oxidation",
     aliases: ["pcc", "pyridinium chlorochromate"],
   },
   {
     id: "dmp",
     canonical: "DMP, CH2Cl2",
+    acceptedLabels: ["DMP", "Dess-Martin"],
     kind: "mild alcohol oxidation",
     aliases: ["dmp", "dess martin", "dess-martin", "dess martin periodinane"],
   },
   {
     id: "swern_oxidation",
     canonical: "1. (COCl)2, DMSO  2. Et3N",
+    acceptedLabels: ["Swern oxidation"],
     kind: "mild alcohol oxidation",
     aliases: ["swern", "swern oxidation", "dmso oxalyl chloride", "oxalyl chloride dmso et3n"],
   },
   {
     id: "jones_oxidation",
     canonical: "Na2Cr2O7, H2SO4, H2O",
+    acceptedLabels: ["Jones oxidation", "Na2Cr2O7, H2SO4"],
     kind: "strong alcohol oxidation",
     aliases: [
       "jones",
@@ -302,6 +308,7 @@ export const reagentAliases = [
   {
     id: "dibal_ester_reduction",
     canonical: "1. DIBAL-H, toluene, -78 C  2. H3O+",
+    acceptedLabels: ["DIBAL-H"],
     kind: "selective ester reduction",
     aliases: [
       "dibal",
@@ -316,6 +323,7 @@ export const reagentAliases = [
   {
     id: "friedel_crafts_acylation",
     canonical: "AlCl3",
+    acceptedLabels: ["Friedel-Crafts acylation"],
     kind: "Friedel-Crafts acylation conditions",
     aliases: [
       "alcl3",

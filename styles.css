@@ -658,6 +658,10 @@ select:focus {
   padding: 0 9px;
 }
 
+.pill-secondary {
+  color: var(--muted);
+}
+
 .results {
   display: grid;
   gap: 8px;

@@ -1498,8 +1498,10 @@ function renderResolvedReagent(resolution) {
 
   const reagents = resolution.reagents || [resolution.reagent];
   const eq = resolution.equivalents ? `${resolution.equivalents} eq` : "equiv unspecified";
+  const accepted = reagents.flatMap((reagent) => reagent.acceptedLabels || []);
   els.resolvedReagent.innerHTML = `
     ${reagents.map((reagent) => `<span class="pill">${escapeHtml(reagent.canonical)}</span>`).join("")}
+    ${accepted.map((label) => `<span class="pill pill-secondary">also: ${escapeHtml(label)}</span>`).join("")}
     ${reagents.map((reagent) => `<span class="pill">${escapeHtml(reagent.kind)}</span>`).join("")}
     <span class="pill">${escapeHtml(eq)}</span>
     <span class="pill">${escapeHtml(resolution.confidence)} confidence</span>
