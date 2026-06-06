@@ -160,6 +160,13 @@ const localMolecules = [
     molecularWeight: "30.03",
   },
   {
+    keys: ["aceticacid", "ethanoicacid"],
+    displayName: "Acetic acid",
+    canonicalSmiles: "CC(=O)O",
+    formula: "C2H4O2",
+    molecularWeight: "60.05",
+  },
+  {
     keys: ["acetaldehyde", "ethanal"],
     displayName: "Acetaldehyde",
     canonicalSmiles: "CC=O",
@@ -1441,6 +1448,11 @@ function reagentIsCarbonylPartner(reagent) {
   return Boolean(smiles && (hasCarbonyl(smiles) || isCarbonDioxide(smiles)));
 }
 
+function reagentIsCarboxylicAcidPartner(reagent) {
+  const smiles = reagent?.molecule?.canonicalSmiles;
+  return Boolean(smiles && hasCarboxylicAcid(smiles));
+}
+
 function extractStructuralReagentTexts(input) {
   const parts = input
     .split(/\b(?:then|followed by|and then|plus|with)\b|[,;+]|\d+\./i)
@@ -1590,6 +1602,7 @@ function findReactionCandidatesRaw(molecule, resolution) {
   const acidChloride = reagents.find((reagent) => reagent.kind === "acid chloride acyl donor");
   const structuralAmine = reagents.find((reagent) => reagent.kind === "primary amine imine donor" || reagent.kind === "secondary amine enamine donor");
   const structuralCarbonyl = reagents.find((reagent) => reagentIsCarbonylPartner(reagent));
+  const structuralCarboxylicAcid = reagents.find((reagent) => reagentIsCarboxylicAcidPartner(reagent));
   const nucleophile = reagents.find((reagent) => reagentHasRole(reagent, "nucleophile"));
   const reagentIds = new Set(reagents.map((reagent) => reagent.id));
   const hydrideReagent = reagents.find((reagent) => isCarbonylHydrideReagent(reagent.id));
@@ -1605,7 +1618,31 @@ function findReactionCandidatesRaw(molecule, resolution) {
     return acetalProtectionCandidates(molecule);
   }
 
-  if (substrateAlkylHalide && reagentIds.has("mg_ether") && structuralCarbonyl) {
+  if (substrateAlkylHalide && reagentIds.has("mg_ether") && structuralCarboxylicAcid) {
+    return [
+      candidate({
+        id: "one_pot_grignard_blocked_by_acid",
+        label: "No useful Grignard addition",
+        productName: molecule.displayName,
+        productSmiles: substrateSmiles,
+        bucket: "none",
+        confidence: 0.78,
+        annotations: {
+          stereochemistry: "unchanged",
+          selectivity: "acid-base quench",
+          mechanism: "acid-base",
+          warnings: ["Carboxylic acids protonate Grignard reagents instead of undergoing ordinary carbonyl addition."],
+        },
+        explanation: [
+          "The input contains Mg/ether and a carboxylic acid co-reactant.",
+          "A Grignard reagent is too basic to coexist with a carboxylic acid; acid-base quench dominates.",
+          "Use aldehydes, ketones, esters, or CO2-type electrophiles for productive Grignard carbon-carbon bond formation.",
+        ],
+      }),
+    ];
+  }
+
+  if (substrateAlkylHalide && reagentIds.has("mg_ether") && structuralCarbonyl && !structuralCarboxylicAcid) {
     const grignardProduct = alkylHalideToGrignard(substrateSmiles);
     const substrateGrignardReagent = grignardProduct
       ? classifyGrignard(
@@ -1633,7 +1670,11 @@ function findReactionCandidatesRaw(molecule, resolution) {
     return grignardFormationCandidates(molecule, substrateAlkylHalide);
   }
 
-  if (substrateGrignard && structuralCarbonyl) {
+  if (substrateGrignard && structuralCarboxylicAcid) {
+    return grignardAcidBaseCandidates(molecule, substrateGrignard, structuralCarboxylicAcid);
+  }
+
+  if (substrateGrignard && structuralCarbonyl && !reagentIsCarboxylicAcidPartner(structuralCarbonyl)) {
     return grignardReactionCandidates(structuralCarbonyl.molecule, substrateGrignard).map((candidate) => ({
       ...candidate,
       id: `substrate_grignard_${candidate.id}`,
@@ -1646,6 +1687,10 @@ function findReactionCandidatesRaw(molecule, resolution) {
 
   if (reagentIds.has("friedel_crafts_acylation") && acidChloride) {
     return friedelCraftsAcylationCandidates(molecule, acidChloride);
+  }
+
+  if (acidChloride && hasAromaticRing(substrateSmiles)) {
+    return friedelCraftsNeedsLewisAcidCandidates(molecule, acidChloride);
   }
 
   if (structuralAmine && hasCarbonyl(substrateSmiles)) {
@@ -1682,7 +1727,14 @@ function findReactionCandidatesRaw(molecule, resolution) {
       : noCarbonylReductionCandidate(molecule, hydrideReagent);
   }
 
-  if (grignard && (hasCarbonyl(substrateSmiles) || isCarbonDioxide(substrateSmiles))) {
+  if (grignard && hasCarboxylicAcid(substrateSmiles)) {
+    return grignardAcidBaseCandidates(molecule, grignard, {
+      canonical: molecule.displayName,
+      molecule,
+    });
+  }
+
+  if (grignard && ((hasCarbonyl(substrateSmiles) && !hasCarboxylicAcid(substrateSmiles)) || isCarbonDioxide(substrateSmiles))) {
     return grignardReactionCandidates(molecule, grignard);
   }
 
@@ -3520,6 +3572,23 @@ function hasEster(smiles) {
   }
 }
 
+function hasCarboxylicAcid(smiles) {
+  try {
+    return Boolean(findFirstCarboxylicAcid(chem.fromSmiles(smiles).graph));
+  } catch {
+    return false;
+  }
+}
+
+function hasAromaticRing(smiles) {
+  try {
+    const graph = chem.fromSmiles(smiles).graph;
+    return graph.atoms.some((atom) => atomElement(atom) === "C" && atom.token === "c");
+  } catch {
+    return /c\d|c1|c/.test(stripStereo(smiles));
+  }
+}
+
 function esterDibalReductionCandidates(molecule) {
   const smiles = reactionSmilesForMolecule(molecule);
   if (!hasEster(smiles)) {
@@ -4362,6 +4431,32 @@ function findFirstEster(graph) {
   return null;
 }
 
+function findFirstCarboxylicAcid(graph) {
+  for (const carbonyl of carbonylsInGraph(graph)) {
+    const hydroxyl = graphNeighbors(graph, carbonyl.carbon)
+      .filter((neighbor) => neighbor.atomIndex !== carbonyl.oxygen)
+      .filter((neighbor) => neighbor.bond.order === 1)
+      .find((neighbor) => {
+        const atom = graph.atoms[neighbor.atomIndex];
+        if (atomElement(atom) !== "O") return false;
+        return !graphNeighbors(graph, neighbor.atomIndex)
+          .some((oxygenNeighbor) => {
+            return oxygenNeighbor.atomIndex !== carbonyl.carbon
+              && oxygenNeighbor.bond.order === 1
+              && atomElement(graph.atoms[oxygenNeighbor.atomIndex]) === "C";
+          });
+      });
+    if (hydroxyl) {
+      return {
+        carbonylCarbon: carbonyl.carbon,
+        carbonylOxygen: carbonyl.oxygen,
+        hydroxylOxygen: hydroxyl.atomIndex,
+      };
+    }
+  }
+  return null;
+}
+
 function carbonylsInGraph(graph) {
   const carbonyls = [];
   for (const bond of graph.bonds) {
@@ -4446,6 +4541,32 @@ function grignardReactionCandidates(molecule, reagent) {
         "The Grignard carbon attacks the carbonyl carbon.",
         "Acid workup protonates the alkoxide to give an alcohol.",
         "Formaldehyde gives primary alcohols, aldehydes give secondary alcohols, and ketones give tertiary alcohols.",
+      ],
+    }),
+  ];
+}
+
+function grignardAcidBaseCandidates(molecule, grignardReagent, acidReagent) {
+  const organoSmiles = grignardReagent.organoSmiles;
+  const productSmiles = organoSmiles || reactionSmilesForMolecule(molecule);
+  return [
+    candidate({
+      id: "grignard_acid_base_quench",
+      label: "Acid-base quench",
+      productName: `${grignardReagent.canonical} quenched hydrocarbon`,
+      productSmiles,
+      bucket: "high",
+      confidence: 0.82,
+      annotations: {
+        stereochemistry: "not stereospecific",
+        selectivity: "acid-base dominates",
+        mechanism: "acid-base",
+        warnings: ["Carboxylic acids protonate Grignard reagents; this is not productive carbonyl addition."],
+      },
+      explanation: [
+        `${acidReagent.canonical || acidReagent.molecule?.displayName || "The carboxylic acid"} is acidic enough to protonate a Grignard reagent.`,
+        "The carbon-magnesium bond is quenched to the corresponding hydrocarbon.",
+        "For carbon-carbon bond formation with Grignards, use aldehydes, ketones, esters, CO2, or similar electrophiles under appropriate workup.",
       ],
     }),
   ];
@@ -4544,6 +4665,30 @@ function friedelCraftsAcylationCandidates(molecule, acidChloride) {
         "AlCl3 activates the acid chloride to an acylium-like electrophile.",
         `${acidChloride.canonical} supplies the acyl group.`,
         "The aromatic ring undergoes electrophilic aromatic substitution to install the acyl group.",
+      ],
+    }),
+  ];
+}
+
+function friedelCraftsNeedsLewisAcidCandidates(molecule, acidChloride) {
+  return [
+    candidate({
+      id: `friedel_crafts_missing_lewis_acid_${acidChloride.id}`,
+      label: "Friedel-Crafts acylation needs AlCl3",
+      productName: molecule.displayName,
+      productSmiles: reactionSmilesForMolecule(molecule),
+      bucket: "none",
+      confidence: 0.82,
+      annotations: {
+        stereochemistry: "unchanged",
+        selectivity: "condition missing",
+        mechanism: "Friedel-Crafts acylation",
+        warnings: ["The acid chloride acyl donor was recognized, but Friedel-Crafts acylation also needs a Lewis acid such as AlCl3."],
+      },
+      explanation: [
+        `${acidChloride.canonical} is an acid chloride acyl donor.`,
+        "Friedel-Crafts acylation normally requires AlCl3 or a similar Lewis acid to generate the acylium-like electrophile.",
+        "Enter a reagent set such as AlCl3 + acetyl chloride.",
       ],
     }),
   ];

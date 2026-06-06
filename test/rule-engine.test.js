@@ -703,6 +703,63 @@ const tests = [
     },
   },
   {
+    name: "stepwise Grignard app input resolves carbonyl co-reactants",
+    async run() {
+      const [grignard] = context.findReactionCandidates(
+        context.withChemMetadata(context.localMoleculeFromInput("ethyl bromide")),
+        resolution(magnesium),
+      );
+      assert.equal(grignard.productSmiles, "CC[Mg]Br");
+
+      const formaldehyde = await context.resolveReagentInput("formaldehyde");
+      assert.equal(formaldehyde.reagent.molecule.canonicalSmiles, "C=O");
+
+      const [alcohol] = context.findReactionCandidates(
+        context.withChemMetadata({
+          displayName: "Ethylmagnesium bromide",
+          canonicalSmiles: grignard.productSmiles,
+          structureKey: grignard.productSmiles,
+        }),
+        formaldehyde,
+      );
+      assert.equal(alcohol.label, "Alcohol after Grignard addition and acid workup");
+      assert.equal(alcohol.productSmiles, "C(O)(CC)");
+    },
+  },
+  {
+    name: "Grignard reagents are quenched by carboxylic acid co-reactants",
+    async run() {
+      const aceticAcid = await context.resolveReagentInput("acetic acid");
+      assert.equal(aceticAcid.reagent.molecule.canonicalSmiles, "CC(=O)O");
+      assert.equal(context.hasCarboxylicAcid(aceticAcid.reagent.molecule.canonicalSmiles), true);
+
+      const [candidate] = context.findReactionCandidates(
+        context.withChemMetadata({
+          displayName: "Ethylmagnesium bromide",
+          canonicalSmiles: "CC[Mg]Br",
+          structureKey: "CC[Mg]Br",
+        }),
+        aceticAcid,
+      );
+      assert.equal(candidate.label, "Acid-base quench");
+      assert.equal(candidate.productSmiles, "CC");
+      assert.equal(candidate.annotations.mechanism, "acid-base");
+    },
+  },
+  {
+    name: "one-pot Grignard formation is blocked by carboxylic acid co-reactants",
+    async run() {
+      const resolution = await context.resolveReagentInput("Mg, Et2O + acetic acid");
+      const [candidate] = context.findReactionCandidates(
+        context.withChemMetadata(context.localMoleculeFromInput("ethyl bromide")),
+        resolution,
+      );
+      assert.equal(candidate.label, "No useful Grignard addition");
+      assert.equal(candidate.bucket, "none");
+      assert.equal(candidate.annotations.mechanism, "acid-base");
+    },
+  },
+  {
     name: "PBr3 and SOCl2 convert alcohols into alkyl halides",
     run() {
       const [bromide] = productsFor("CCO", PBr3);
@@ -1236,6 +1293,21 @@ const tests = [
       );
       assert.equal(candidate.label, "Friedel-Crafts acylation product");
       assert.equal(candidate.productSmiles, "c1c(C(=O)C)cccc1");
+    },
+  },
+  {
+    name: "acid chloride alone is recognized as missing Friedel-Crafts Lewis acid",
+    async run() {
+      const resolution = await context.resolveReagentInput("acetyl chloride");
+      assert.equal(resolution.reagent.kind, "acid chloride acyl donor");
+
+      const [candidate] = context.findReactionCandidates(
+        context.withChemMetadata(context.localMoleculeFromInput("benzene")),
+        resolution,
+      );
+      assert.equal(candidate.label, "Friedel-Crafts acylation needs AlCl3");
+      assert.equal(candidate.bucket, "none");
+      assert.equal(candidate.annotations.mechanism, "Friedel-Crafts acylation");
     },
   },
   {
