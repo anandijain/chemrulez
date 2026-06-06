@@ -1225,23 +1225,11 @@ function formatAnnotationsForSharing(annotations) {
 function compactRoutePayload(path = state.path, options = {}) {
   return {
     app: "chemrulez",
-    v: 1,
-    mode: options.mode ?? state.mode,
-    commitSha: options.commitSha ?? deployedCommitSha() ?? null,
-    puzzle: (options.puzzle ?? state.puzzle)?.id || null,
-    steps: path.map((step) => ({
-      label: step.label,
-      ruleId: step.ruleId || null,
-      smiles: step.smiles,
-      structureKey: step.structureKey || step.smiles,
-      annotations: step.annotations || null,
-      molecule: step.molecule ? {
-        displayName: step.molecule.displayName,
-        canonicalSmiles: step.molecule.canonicalSmiles,
-        structureKey: step.molecule.structureKey || step.structureKey || step.smiles,
-        cid: step.molecule.cid || null,
-      } : null,
-    })),
+    v: 2,
+    m: (options.mode ?? state.mode) === "puzzles" ? "p" : "f",
+    c: shortCommitSha(options.commitSha ?? deployedCommitSha() ?? ""),
+    p: (options.puzzle ?? state.puzzle)?.id || null,
+    s: path.map(compactRouteStepV2),
   };
 }
 
@@ -1259,6 +1247,55 @@ function encodeRoutePayload(payload) {
 function decodeRoutePayload(encoded) {
   const bytes = base64UrlToBytes(encoded);
   return JSON.parse(new TextDecoder().decode(bytes));
+}
+
+function compactRouteStepV2(step) {
+  const smiles = step.smiles || step.molecule?.canonicalSmiles || "";
+  const structureKey = step.structureKey || step.molecule?.structureKey || smiles;
+  const molecule = step.molecule || {};
+  return trimTrailingNulls([
+    step.label || "",
+    smiles,
+    structureKey !== smiles ? structureKey : null,
+    step.ruleId || null,
+    compactAnnotations(step.annotations),
+    molecule.cid || null,
+    molecule.displayName && molecule.displayName !== step.label ? molecule.displayName : null,
+  ]);
+}
+
+function compactAnnotations(annotations) {
+  if (!annotations) return null;
+  const normalized = normalizeReactionAnnotations(annotations);
+  const compact = {};
+  if (normalized.stereochemistry) compact.s = normalized.stereochemistry;
+  if (normalized.selectivity) compact.e = normalized.selectivity;
+  if (normalized.mechanism) compact.m = normalized.mechanism;
+  if (normalized.warnings.length) compact.w = normalized.warnings;
+  return Object.keys(compact).length ? compact : null;
+}
+
+function expandAnnotations(compact) {
+  if (!compact) return null;
+  if (compact.stereochemistry || compact.selectivity || compact.mechanism || compact.warnings) return compact;
+  return {
+    stereochemistry: compact.s || "",
+    selectivity: compact.e || "",
+    mechanism: compact.m || "",
+    warnings: compact.w || [],
+  };
+}
+
+function shortCommitSha(sha) {
+  return sha ? String(sha).slice(0, 8) : null;
+}
+
+function trimTrailingNulls(values) {
+  const trimmed = [...values];
+  while (trimmed.length && (trimmed[trimmed.length - 1] === null || trimmed[trimmed.length - 1] === "")) {
+    trimmed.pop();
+  }
+  return trimmed;
 }
 
 function bytesToBase64Url(bytes) {
@@ -1293,16 +1330,17 @@ function restoreRouteFromLocationHash() {
 }
 
 function restoreRoutePayload(payload) {
-  if (payload?.app !== "chemrulez" || !Array.isArray(payload.steps)) {
+  const stepsPayload = routeStepsPayload(payload);
+  if (payload?.app !== "chemrulez" || !Array.isArray(stepsPayload)) {
     throw new Error("Not a chemrulez route payload.");
   }
 
-  state.mode = payload.mode === "puzzles" ? "puzzles" : "free";
-  state.puzzle = payload.puzzle ? synthesisPuzzles.find((puzzle) => puzzle.id === payload.puzzle) || null : null;
+  state.mode = routePayloadMode(payload);
+  state.puzzle = routePayloadPuzzle(payload) ? synthesisPuzzles.find((puzzle) => puzzle.id === routePayloadPuzzle(payload)) || null : null;
   state.target = state.puzzle ? moleculeFromPuzzleRole(state.puzzle, "target") : null;
   state.solved = false;
   state.redoStack = [];
-  state.path = payload.steps.map((step, index) => routeStepFromPayload(step, index));
+  state.path = stepsPayload.map((step, index) => routeStepFromPayload(step, index));
 
   if (state.path.length) {
     const lastStep = state.path[state.path.length - 1];
@@ -1318,6 +1356,8 @@ function restoreRoutePayload(payload) {
 }
 
 function routeStepFromPayload(step, index) {
+  if (Array.isArray(step)) return routeStepFromCompactPayload(step, index);
+
   const smiles = String(step.smiles || step.molecule?.canonicalSmiles || "");
   if (!smiles) throw new Error(`Route step ${index + 1} has no SMILES.`);
   const structureKey = String(step.structureKey || step.molecule?.structureKey || smiles);
@@ -1340,6 +1380,44 @@ function routeStepFromPayload(step, index) {
     molecule,
     imageUrl: imageUrlForSmiles(smiles),
     pubchemUrl: pubChemUrlForSmiles(structureKey || smiles),
+  };
+}
+
+function routeStepsPayload(payload) {
+  return Array.isArray(payload?.s) ? payload.s : payload?.steps;
+}
+
+function routePayloadMode(payload) {
+  if (payload?.m === "p") return "puzzles";
+  if (payload?.m === "f") return "free";
+  return payload?.mode === "puzzles" ? "puzzles" : "free";
+}
+
+function routePayloadPuzzle(payload) {
+  return payload?.p ?? payload?.puzzle ?? null;
+}
+
+function routeStepFromCompactPayload(step, index) {
+  const [labelValue, smilesValue, structureKeyValue, ruleIdValue, annotationsValue, cidValue, displayNameValue] = step;
+  const smiles = String(smilesValue || "");
+  if (!smiles) throw new Error(`Route step ${index + 1} has no SMILES.`);
+  const label = String(labelValue || `Step ${index + 1}`);
+  const structureKey = String(structureKeyValue || smiles);
+  const molecule = {
+    displayName: displayNameValue || label,
+    canonicalSmiles: smiles,
+    structureKey,
+    cid: cidValue || null,
+  };
+  return {
+    label,
+    ruleId: ruleIdValue || null,
+    annotations: expandAnnotations(annotationsValue),
+    smiles,
+    structureKey,
+    molecule,
+    imageUrl: imageUrlForSmiles(smiles),
+    pubchemUrl: cidValue ? `https://pubchem.ncbi.nlm.nih.gov/compound/${encodeURIComponent(cidValue)}` : pubChemUrlForSmiles(structureKey || smiles),
   };
 }
 

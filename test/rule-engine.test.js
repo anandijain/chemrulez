@@ -546,7 +546,7 @@ const tests = [
   {
     name: "route links round-trip compact pathway state",
     run() {
-      const route = context.compactRoutePayload([
+      const path = [
         {
           label: "Imported 1-Bromobutane",
           ruleId: null,
@@ -573,11 +573,28 @@ const tests = [
             cid: null,
           },
         },
-      ], { mode: "free", commitSha: "abc123" });
+      ];
+      const route = context.compactRoutePayload(path, { mode: "free", commitSha: "abc123" });
       const encoded = context.encodeRoutePayload(route);
       const decoded = context.decodeRoutePayload(encoded);
-      assert.equal(decoded.steps[1].smiles, "CCCC[Mg]Br");
-      assert.equal(decoded.steps[1].annotations.mechanism, "Grignard formation");
+      assert.equal(decoded.v, 2);
+      assert.equal(decoded.s[1][1], "CCCC[Mg]Br");
+      assert.equal(decoded.s[1][4].m, "Grignard formation");
+
+      const restoredStep = context.routeStepFromPayload(decoded.s[1], 1);
+      assert.equal(restoredStep.smiles, "CCCC[Mg]Br");
+      assert.equal(restoredStep.annotations.mechanism, "Grignard formation");
+      assert.equal(restoredStep.molecule.displayName, "1-Bromobutane Grignard reagent");
+
+      const oldRoute = {
+        app: "chemrulez",
+        v: 1,
+        mode: "free",
+        commitSha: "abc123",
+        puzzle: null,
+        steps: path,
+      };
+      assert.ok(encoded.length < context.encodeRoutePayload(oldRoute).length * 0.7);
     },
   },
   {
