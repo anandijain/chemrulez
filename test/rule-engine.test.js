@@ -1157,6 +1157,22 @@ const tests = [
     },
   },
   {
+    name: "Grignard reagents add twice to esters",
+    run() {
+      const substrate = context.withChemMetadata(context.localMoleculeFromInput("methyl benzoate"));
+      assert.equal(substrate.canonicalSmiles, "COC(=O)c1ccccc1");
+
+      const [candidate] = context.findReactionCandidates(substrate, resolution(phenylGrignard));
+      assert.equal(candidate.label, "Tertiary alcohol after ester double addition");
+      assert.equal(candidate.annotations.mechanism, "Grignard ester double addition");
+      assert.equal(candidate.annotations.selectivity, "two additions to ester");
+      assert.equal(context.hasEster(candidate.productSmiles), false);
+      assert.equal(context.hasAldehydeOrKetone(candidate.productSmiles), false);
+      assert.match(candidate.productSmiles, /O/);
+      assert.match(candidate.productSmiles, /c\d/);
+    },
+  },
+  {
     name: "hydride reagents reduce aldehydes and ketones to alcohols",
     run() {
       assert.equal(context.resolveKnownReagent("NaBH4").id, "sodium_borohydride");

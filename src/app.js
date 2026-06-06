@@ -230,6 +230,13 @@ const localMolecules = [
     molecularWeight: "88.11",
   },
   {
+    keys: ["methylbenzoate", "methyl benzoate"],
+    displayName: "Methyl benzoate",
+    canonicalSmiles: "COC(=O)c1ccccc1",
+    formula: "C8H8O2",
+    molecularWeight: "136.15",
+  },
+  {
     keys: ["methanol", "meoh"],
     displayName: "Methanol",
     canonicalSmiles: "CO",
@@ -4945,6 +4952,54 @@ function grignardReactionCandidates(molecule, reagent) {
     ];
   }
 
+  if (hasEster(smiles)) {
+    const productSmiles = addGrignardTwiceToEster(smiles, organoSmiles);
+    if (!productSmiles) {
+      return [
+        candidate({
+          id: "grignard_ester_addition_no_product",
+          label: "No ester Grignard product",
+          productName: molecule.displayName,
+          productSmiles: smiles,
+          bucket: "none",
+          confidence: 0.52,
+          annotations: {
+            stereochemistry: "not-modeled",
+            selectivity: "none",
+            mechanism: "Grignard ester addition",
+            warnings: ["The app found an ester but could not serialize the double-addition alcohol product."],
+          },
+          explanation: [
+            "Esters normally undergo two additions with Grignard reagents.",
+            "The first addition expels alkoxide to a ketone; the ketone is more reactive and is attacked again.",
+          ],
+        }),
+      ];
+    }
+
+    return [
+      candidate({
+        id: "grignard_ester_double_addition",
+        label: "Tertiary alcohol after ester double addition",
+        productName: `${molecule.displayName} Grignard tertiary alcohol`,
+        productSmiles,
+        bucket: "high",
+        confidence: 0.78,
+        annotations: {
+          stereochemistry: "racemic if new stereocenter forms",
+          selectivity: "two additions to ester",
+          mechanism: "Grignard ester double addition",
+          warnings: ["The alkoxy leaving-group alcohol byproduct is not kept as the path product."],
+        },
+        explanation: [
+          "Esters do not usually stop after one Grignard addition.",
+          "The first equivalent adds to the ester and expels alkoxide, giving a ketone intermediate.",
+          "A second equivalent adds to that ketone; acid workup gives the tertiary alcohol.",
+        ],
+      }),
+    ];
+  }
+
   return [
     candidate({
       id: "grignard_carbonyl_addition",
@@ -5337,6 +5392,30 @@ function addGrignardToCarbonylGraph(smiles, organoSmiles) {
   product.atoms[carbonyl.oxygen].token = "O";
   addFragmentToAtom(product, carbonyl.carbon, organoSmiles);
   product.root = bestRootForProduct(product, carbonyl.carbon);
+  product.hasRings = graphHasCycle(product.atoms, product.bonds);
+  product.hasDisconnectedComponents = hasMultipleConnectedComponents(product);
+  return smilesFromGraph(product);
+}
+
+function addGrignardTwiceToEster(smiles, organoSmiles) {
+  let parsed;
+  try {
+    parsed = chem.fromSmiles(smiles);
+  } catch {
+    return null;
+  }
+
+  const ester = findFirstEster(parsed.graph);
+  if (!ester) return null;
+  const product = cloneGraph(parsed.graph);
+  removeGraphBond(product, ester.carbonylCarbon, ester.alkoxyOxygen);
+  const carbonylBond = graphBondBetween(product, ester.carbonylCarbon, ester.carbonylOxygen);
+  if (!carbonylBond) return null;
+  carbonylBond.order = 1;
+  product.atoms[ester.carbonylOxygen].token = "O";
+  addFragmentToAtom(product, ester.carbonylCarbon, organoSmiles);
+  addFragmentToAtom(product, ester.carbonylCarbon, organoSmiles);
+  product.root = bestRootForProduct(product, ester.carbonylCarbon);
   product.hasRings = graphHasCycle(product.atoms, product.bonds);
   product.hasDisconnectedComponents = hasMultipleConnectedComponents(product);
   return smilesFromGraph(product);
