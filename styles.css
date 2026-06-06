@@ -837,6 +837,19 @@ select:focus {
   margin-top: 6px;
 }
 
+.site-disclaimer {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin: 8px auto 24px;
+  max-width: 1180px;
+  padding: 0 24px;
+}
+
+.site-disclaimer a {
+  color: var(--accent);
+  font-weight: 700;
+}
+
 @media (max-width: 900px) {
   .app {
     grid-template-columns: 1fr;
