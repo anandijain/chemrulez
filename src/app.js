@@ -4923,7 +4923,32 @@ function addGrignardToCarbonyl(smiles, organoSmiles) {
   const clean = stripStereo(smiles);
   if (clean.includes("C(=O)")) return clean.replace("C(=O)", `C(O)(${organoSmiles})`);
   if (clean.includes("C=O")) return clean.replace("C=O", `C(O)(${organoSmiles})`);
+  const graphProduct = addGrignardToCarbonylGraph(smiles, organoSmiles);
+  if (graphProduct) return graphProduct;
   return clean;
+}
+
+function addGrignardToCarbonylGraph(smiles, organoSmiles) {
+  let parsed;
+  try {
+    parsed = chem.fromSmiles(smiles);
+  } catch {
+    return null;
+  }
+
+  const carbonyl = findFirstAldehydeOrKetoneCarbonyl(parsed.graph);
+  if (!carbonyl) return null;
+
+  const product = cloneGraph(parsed.graph);
+  const carbonylBond = graphBondBetween(product, carbonyl.carbon, carbonyl.oxygen);
+  if (!carbonylBond) return null;
+  carbonylBond.order = 1;
+  product.atoms[carbonyl.oxygen].token = "O";
+  addFragmentToAtom(product, carbonyl.carbon, organoSmiles);
+  product.root = bestRootForProduct(product, carbonyl.carbon);
+  product.hasRings = graphHasCycle(product.atoms, product.bonds);
+  product.hasDisconnectedComponents = hasMultipleConnectedComponents(product);
+  return smilesFromGraph(product);
 }
 
 function grignardOrganoFragment(smiles, input) {

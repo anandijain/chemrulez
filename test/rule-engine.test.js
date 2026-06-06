@@ -1144,6 +1144,19 @@ const tests = [
     },
   },
   {
+    name: "Grignard addition transforms cyclic ketone graph keys",
+    run() {
+      const ethylGrignard = reagent("local_grignard_ethyl", "CH3CH2MgBr, H3O+", "Grignard addition");
+      ethylGrignard.organoSmiles = "CC";
+      const [candidate] = productsFor("O=C1CCCCC1", ethylGrignard);
+      assert.equal(candidate.label, "Alcohol after Grignard addition and acid workup");
+      assert.notEqual(candidate.productSmiles, "O=C1CCCCC1");
+      assert.equal(context.hasAldehydeOrKetone(candidate.productSmiles), false);
+      assert.match(candidate.productSmiles, /O/);
+      assert.match(candidate.productSmiles, /CC/);
+    },
+  },
+  {
     name: "hydride reagents reduce aldehydes and ketones to alcohols",
     run() {
       assert.equal(context.resolveKnownReagent("NaBH4").id, "sodium_borohydride");
