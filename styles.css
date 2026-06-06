@@ -248,6 +248,17 @@ h1 {
   line-height: 1;
 }
 
+.brand-link {
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.brand-link:hover {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 4px;
+}
+
 h2 {
   font-size: 1rem;
 }

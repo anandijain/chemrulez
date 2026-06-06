@@ -355,6 +355,7 @@ const els = {
   importPanel: document.querySelector("#importPanel"),
   moleculeInput: document.querySelector("#moleculeInput"),
   importStatus: document.querySelector("#importStatus"),
+  homeLink: document.querySelector("#homeLink"),
   modeIntroText: document.querySelector("#modeIntroText"),
   commitLink: document.querySelector("#commitLink"),
   freePlayLink: document.querySelector("#freePlayLink"),
@@ -422,6 +423,11 @@ els.reagentInput.addEventListener("input", () => {
 
 els.resetBtn.addEventListener("click", () => {
   resetWorkspace();
+});
+
+els.homeLink.addEventListener("click", (event) => {
+  event.preventDefault();
+  resetHome();
 });
 
 els.shortcutsBtn.addEventListener("click", () => toggleShortcuts(true));
@@ -854,6 +860,12 @@ function resetWorkspace() {
   renderPath();
   setImportStatus("");
   focusMoleculeInput();
+}
+
+function resetHome() {
+  state.mode = "free";
+  window.history.pushState({}, "", "./");
+  resetWorkspace();
 }
 
 function moleculeSnapshot(molecule) {
