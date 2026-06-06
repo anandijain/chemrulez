@@ -64,6 +64,21 @@ For these cases, parse the input into agents first, derive graph roles from each
 agent, then let the rule engine match substrate role + reagent roles. Do not add
 one-off aliases for every possible aldehyde, ketone, acid chloride, or ylide.
 
+Rules also need compatibility checks before product generation. For example, a
+substrate containing both a terminal alkyne and an exposed aldehyde/ketone should
+not blindly accept `NaNH2` acetylide alkylation: the carbonyl should be protected
+first, then the alkyne can be deprotonated/alkylated, then the carbonyl can be
+deprotected.
+
+Wittig should follow the same structural-partner model:
+
+- classify aldehyde/ketone substrates by graph,
+- classify phosphonium ylides or phosphoranes by graph and derive the carbon
+  group attached to the ylide carbon,
+- transform carbonyl C=O plus ylide C into C=C plus phosphine oxide byproduct,
+- annotate E/Z selectivity rather than pretending every ylide gives one clean
+  alkene.
+
 ## Known Model Gaps
 
 - Grignard reactions are only partially supported. The app can form simple
@@ -78,4 +93,5 @@ one-off aliases for every possible aldehyde, ketone, acid chloride, or ylide.
   abstraction for arbitrary custom reagent partners.
 - Wittig reactions are not supported. A future implementation probably needs
   structural ylide/phosphorane reagent partners, carbonyl matching, alkene
-  product generation, and explicit E/Z selectivity annotations.
+  product generation, phosphine oxide byproducts, and explicit E/Z selectivity
+  annotations.

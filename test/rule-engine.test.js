@@ -188,6 +188,23 @@ const tests = [
     },
   },
   {
+    name: "NaNH2 flags terminal alkyne alkylation when ketone is unprotected",
+    run() {
+      assert.equal(context.isLikelyTerminalAlkyne("CC(=O)CC#C"), true);
+      assert.equal(context.hasAldehydeOrKetone("CC(=O)CC#C"), true);
+
+      const [baseOnly] = productsFor("CC(=O)CC#C", NaNH2);
+      assert.equal(baseOnly.label, "Protect the carbonyl before acetylide chemistry");
+      assert.equal(baseOnly.bucket, "none");
+      assert.equal(baseOnly.productSmiles, "CC(=O)CC#C");
+
+      const [onePot] = productsFor("CC(=O)CC#C", NaNH2, alkylHalide("ethyl bromide", "CC"));
+      assert.equal(onePot.label, "Protect the carbonyl before acetylide chemistry");
+      assert.equal(onePot.bucket, "none");
+      assert.match(onePot.explanation.at(-1), /protect the carbonyl/i);
+    },
+  },
+  {
     name: "acetylide alkylation connects at the alkyl halide leaving-group carbon",
     run() {
       const phenethylBromide = alkylHalide("phenethyl bromide", "c1ccccc1CC");

@@ -1769,6 +1769,10 @@ function findReactionCandidatesRaw(molecule, resolution) {
     if (alkeneCandidates.length) return alkeneCandidates;
   }
 
+  if (sodiumAmide && isLikelyTerminalAlkyne(substrateSmiles) && hasAldehydeOrKetone(substrateSmiles)) {
+    return acetylideCarbonylConflictCandidates(molecule, Boolean(alkylHalide));
+  }
+
   if (sodiumAmide && alkylHalide && isLikelyTerminalAlkyne(substrateSmiles)) {
     const acetylide = {
       ...molecule,
@@ -1953,6 +1957,33 @@ function alkyneReactionCandidates(molecule, reagentIds) {
   }
 
   return [];
+}
+
+function acetylideCarbonylConflictCandidates(molecule, hasAlkylatingPartner = false) {
+  const smiles = reactionSmilesForMolecule(molecule);
+  return [
+    candidate({
+      id: "terminal_alkyne_carbonyl_base_conflict",
+      label: "Protect the carbonyl before acetylide chemistry",
+      productName: molecule.displayName,
+      productSmiles: smiles,
+      bucket: "none",
+      confidence: 0.86,
+      annotations: {
+        stereochemistry: "unchanged",
+        selectivity: "incompatible functional groups",
+        mechanism: "acid-base / carbonyl incompatibility",
+        warnings: ["NaNH2/acetylide conditions are not compatible with an exposed aldehyde or ketone in this simplified synthesis model."],
+      },
+      explanation: [
+        "The substrate has both a terminal alkyne and an exposed aldehyde/ketone carbonyl.",
+        "Strong base can form enolates, and any acetylide formed is also a strong nucleophile toward carbonyls.",
+        hasAlkylatingPartner
+          ? "For terminal alkyne alkylation, protect the carbonyl first, then use NaNH2 and the alkyl halide, then deprotect."
+          : "Protect the carbonyl first if the next goal is terminal alkyne deprotonation.",
+      ],
+    }),
+  ];
 }
 
 function alkeneReactionCandidates(molecule, reagentIds) {
