@@ -3791,12 +3791,96 @@ function enamineProductOptions(smiles, amine) {
     };
   }).filter(Boolean);
 
-  const unique = new Map();
+  return uniqueEnamineProducts(products)
+    .sort((a, b) => b.score - a.score || a.productSmiles.localeCompare(b.productSmiles));
+}
+
+function uniqueEnamineProducts(products) {
+  const unique = [];
   for (const product of products) {
-    const previous = unique.get(product.productSmiles);
-    if (!previous || product.score > previous.score) unique.set(product.productSmiles, product);
+    const existing = unique.find((candidateProduct) => {
+      return candidateProduct.score === product.score
+        && sameProductGraph(candidateProduct.productSmiles, product.productSmiles);
+    });
+    if (!existing) {
+      unique.push(product);
+    } else if (product.score > existing.score) {
+      Object.assign(existing, product);
+    }
   }
-  return [...unique.values()].sort((a, b) => b.score - a.score || a.productSmiles.localeCompare(b.productSmiles));
+  return unique;
+}
+
+function sameProductGraph(leftSmiles, rightSmiles) {
+  if (leftSmiles === rightSmiles) return true;
+  let left;
+  let right;
+  try {
+    left = chem.fromSmiles(leftSmiles).graph;
+    right = chem.fromSmiles(rightSmiles).graph;
+  } catch {
+    return false;
+  }
+  return graphSignature(left) === graphSignature(right) || smallGraphsAreIsomorphic(left, right);
+}
+
+function graphSignature(graph) {
+  const atoms = graph.atoms.map((atom) => atomElement(atom)).sort().join(",");
+  const bonds = graph.bonds
+    .map((bond) => {
+      const elements = [atomElement(graph.atoms[bond.from]), atomElement(graph.atoms[bond.to])].sort();
+      return `${elements[0]}-${bond.order}-${elements[1]}`;
+    })
+    .sort()
+    .join(",");
+  return `${atoms}|${bonds}`;
+}
+
+function smallGraphsAreIsomorphic(left, right) {
+  if (left.atoms.length !== right.atoms.length || left.bonds.length !== right.bonds.length) return false;
+  if (left.atoms.length > 24) return false;
+  if (graphSignature(left) !== graphSignature(right)) return false;
+
+  const rightByElement = new Map();
+  right.atoms.forEach((atom) => {
+    const element = atomElement(atom);
+    rightByElement.set(element, [...(rightByElement.get(element) || []), atom.id]);
+  });
+
+  const leftOrder = [...left.atoms]
+    .sort((a, b) => graphNeighbors(left, b.id).length - graphNeighbors(left, a.id).length);
+  const mapping = new Map();
+  const usedRight = new Set();
+
+  function backtrack(index) {
+    if (index === leftOrder.length) return true;
+    const leftAtom = leftOrder[index];
+    const element = atomElement(leftAtom);
+    const candidates = rightByElement.get(element) || [];
+    for (const rightAtomIndex of candidates) {
+      if (usedRight.has(rightAtomIndex)) continue;
+      if (!partialMappingIsCompatible(left, right, mapping, leftAtom.id, rightAtomIndex)) continue;
+      mapping.set(leftAtom.id, rightAtomIndex);
+      usedRight.add(rightAtomIndex);
+      if (backtrack(index + 1)) return true;
+      mapping.delete(leftAtom.id);
+      usedRight.delete(rightAtomIndex);
+    }
+    return false;
+  }
+
+  return backtrack(0);
+}
+
+function partialMappingIsCompatible(left, right, mapping, leftAtomIndex, rightAtomIndex) {
+  if (graphNeighbors(left, leftAtomIndex).length !== graphNeighbors(right, rightAtomIndex).length) return false;
+  for (const neighbor of graphNeighbors(left, leftAtomIndex)) {
+    const mappedNeighbor = mapping.get(neighbor.atomIndex);
+    if (mappedNeighbor === undefined) continue;
+    const rightBond = graphBondBetween(right, rightAtomIndex, mappedNeighbor);
+    if (!rightBond || rightBond.order !== neighbor.bond.order) return false;
+  }
+  return true;
 }
 
 function addSecondaryAmineGroup(graph, carbonIndex, amine) {

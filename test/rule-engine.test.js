@@ -1100,6 +1100,15 @@ const tests = [
     },
   },
   {
+    name: "symmetric cyclic ketone enamine candidates are deduplicated",
+    run() {
+      const candidates = productsFor("O=C1CCCC1", dimethylamine);
+      assert.equal(candidates.length, 1);
+      assert.equal(candidates[0].label, "Major enamine");
+      assert.equal(candidates[0].annotations.mechanism, "enamine formation");
+    },
+  },
+  {
     name: "DIBAL-H selectively reduces esters to aldehyde fragments",
     run() {
       assert.equal(context.resolveKnownReagent("DIBAL-H").id, "dibal_ester_reduction");
