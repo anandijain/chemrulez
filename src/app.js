@@ -195,6 +195,13 @@ const localMolecules = [
     molecularWeight: "86.13",
   },
   {
+    keys: ["5aminopentan2one", "5-aminopentan-2-one", "5 amino pentan 2 one", "5aminopentan-2-one"],
+    displayName: "5-Aminopentan-2-one",
+    canonicalSmiles: "CC(=O)CCCN",
+    formula: "C5H11NO",
+    molecularWeight: "101.15",
+  },
+  {
     keys: ["benzene"],
     displayName: "Benzene",
     canonicalSmiles: "c1ccccc1",
@@ -1750,6 +1757,11 @@ function findReactionCandidatesRaw(molecule, resolution) {
 
   if (structuralAmine && hasCarbonyl(substrateSmiles)) {
     return carbonylAmineCondensationCandidates(molecule, structuralAmine);
+  }
+
+  if (hasImineFormationAcid(reagentIds)) {
+    const intramolecularImines = intramolecularImineCandidates(molecule, resolution);
+    if (intramolecularImines.length) return intramolecularImines;
   }
 
   if (reagentIds.has("pbr3") || reagentIds.has("socl2") || reagentIds.has("tosyl_chloride")) {
@@ -4014,6 +4026,10 @@ function hasAcetalFormationAcid(reagentIds) {
   return reagentIds.has("acid_catalyst") || reagentIds.has("acid_hydration");
 }
 
+function hasImineFormationAcid(reagentIds) {
+  return reagentIds.has("acid_catalyst") || reagentIds.has("acid_hydration");
+}
+
 function acetalDeprotectionCandidates(molecule) {
   const smiles = reactionSmilesForMolecule(molecule);
   const productSmiles = deprotectFirstEthyleneGlycolAcetal(smiles) || deprotectFirstAcyclicAcetalOrKetal(smiles);
@@ -4096,6 +4112,134 @@ function carbonylAmineCondensationCandidates(molecule, amine) {
       ],
     }),
   ];
+}
+
+function intramolecularImineCandidates(molecule, resolution) {
+  const options = intramolecularImineProductOptions(reactionSmilesForMolecule(molecule));
+  if (!options.length) return [];
+
+  const drivenForward = acetalFormationDrivenForward(resolution);
+  return options.map((option, index) => candidate({
+    id: `intramolecular_imine_${index}`,
+    label: "Cyclic imine",
+    productName: `${molecule.displayName} cyclic imine`,
+    productSmiles: option.productSmiles,
+    bucket: option.ringSize === 5 || option.ringSize === 6 ? "high" : "medium",
+    confidence: option.ringSize === 5 || option.ringSize === 6 ? 0.76 : 0.58,
+    annotations: {
+      stereochemistry: "not-modeled",
+      selectivity: `${option.ringSize}-membered ring`,
+      mechanism: "intramolecular imine formation",
+      equilibrium: drivenForward ? "forward favored by dehydration" : "reversible; dehydration helps",
+      warnings: ["Full imine E/Z geometry and acid/base speciation are not yet encoded."],
+    },
+    explanation: [
+      "The substrate contains both an aldehyde/ketone carbonyl and a primary amine.",
+      "Under acid, the amine can attack intramolecularly and dehydrate to a cyclic imine.",
+      option.ringSize === 5 || option.ringSize === 6
+        ? `${option.ringSize}-membered ring formation is treated as favorable.`
+        : `${option.ringSize}-membered ring formation is shown but ranked lower than 5- or 6-membered rings.`,
+    ],
+  }));
+}
+
+function intramolecularImineProductOptions(smiles) {
+  let parsed;
+  try {
+    parsed = chem.fromSmiles(smiles);
+  } catch {
+    return [];
+  }
+
+  const carbonyls = carbonylsInGraph(parsed.graph)
+    .filter((carbonyl) => isAldehydeOrKetoneCarbonyl(parsed.graph, carbonyl));
+  const amines = primaryAmineSites(parsed.graph);
+  const products = [];
+
+  for (const carbonyl of carbonyls) {
+    for (const amine of amines) {
+      const distance = shortestGraphDistance(parsed.graph, carbonyl.carbon, amine.nitrogen);
+      if (!Number.isFinite(distance)) continue;
+      const ringSize = distance + 1;
+      if (ringSize < 5 || ringSize > 7) continue;
+
+      const product = cloneGraph(parsed.graph);
+      removeGraphBond(product, carbonyl.carbon, carbonyl.oxygen);
+      addGraphBond(product.bonds, carbonyl.carbon, amine.nitrogen, 2);
+      product.root = bestRootForProduct(product, carbonyl.carbon);
+      product.hasRings = true;
+      product.hasDisconnectedComponents = hasMultipleConnectedComponents(product);
+      products.push({
+        productSmiles: smilesFromGraph(product),
+        ringSize,
+      });
+    }
+  }
+
+  return deduplicateGraphProducts(products)
+    .sort((a, b) => ringPreferenceScore(b.ringSize) - ringPreferenceScore(a.ringSize)
+      || a.productSmiles.localeCompare(b.productSmiles));
+}
+
+function primaryAmineSites(graph) {
+  return graph.atoms
+    .filter((atom) => atomElement(atom) === "N")
+    .map((atom) => {
+      const carbonNeighbors = graphNeighbors(graph, atom.id)
+        .filter((neighbor) => neighbor.bond.order === 1)
+        .filter((neighbor) => atomElement(graph.atoms[neighbor.atomIndex]) === "C");
+      return {
+        nitrogen: atom.id,
+        carbonNeighbors,
+      };
+    })
+    .filter((site) => site.carbonNeighbors.length === 1 && implicitHydrogenCount(graph, site.nitrogen) >= 1);
+}
+
+function shortestGraphDistance(graph, start, end) {
+  const queue = [{ atomIndex: start, distance: 0 }];
+  const visited = new Set();
+
+  while (queue.length) {
+    const current = queue.shift();
+    if (visited.has(current.atomIndex)) continue;
+    if (current.atomIndex === end) return current.distance;
+    visited.add(current.atomIndex);
+    for (const neighbor of graphNeighbors(graph, current.atomIndex)) {
+      if (!visited.has(neighbor.atomIndex)) {
+        queue.push({ atomIndex: neighbor.atomIndex, distance: current.distance + 1 });
+      }
+    }
+  }
+
+  return Infinity;
+}
+
+function ringPreferenceScore(ringSize) {
+  if (ringSize === 5 || ringSize === 6) return 2;
+  if (ringSize === 7) return 1;
+  return 0;
+}
+
+function deduplicateGraphProducts(products) {
+  const seen = new Set();
+  const unique = [];
+  for (const product of products) {
+    const key = structureKeyForSmiles(product.productSmiles);
+    const dedupeKey = `${key}:${product.ringSize ?? ""}`;
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    unique.push(product);
+  }
+  return unique;
+}
+
+function structureKeyForSmiles(smiles) {
+  try {
+    return moleculeFromSmiles(smiles).canonicalSmiles;
+  } catch {
+    return smiles;
+  }
 }
 
 function imineFromCarbonyl(smiles, amine) {
@@ -4590,18 +4734,20 @@ function findFirstAldehydeCarbonyl(graph) {
 }
 
 function findFirstAldehydeOrKetoneCarbonyl(graph) {
-  return carbonylsInGraph(graph).find((carbonyl) => {
-    const neighbors = graphNeighbors(graph, carbonyl.carbon)
-      .filter((neighbor) => neighbor.atomIndex !== carbonyl.oxygen);
-    const carbonNeighbors = neighbors
-      .filter((neighbor) => atomElement(graph.atoms[neighbor.atomIndex]) === "C")
-      .length;
-    const heteroSingleNeighbors = neighbors
-      .filter((neighbor) => neighbor.bond.order === 1)
-      .filter((neighbor) => atomElement(graph.atoms[neighbor.atomIndex]) !== "C")
-      .length;
-    return carbonNeighbors <= 2 && heteroSingleNeighbors === 0;
-  }) || null;
+  return carbonylsInGraph(graph).find((carbonyl) => isAldehydeOrKetoneCarbonyl(graph, carbonyl)) || null;
+}
+
+function isAldehydeOrKetoneCarbonyl(graph, carbonyl) {
+  const neighbors = graphNeighbors(graph, carbonyl.carbon)
+    .filter((neighbor) => neighbor.atomIndex !== carbonyl.oxygen);
+  const carbonNeighbors = neighbors
+    .filter((neighbor) => atomElement(graph.atoms[neighbor.atomIndex]) === "C")
+    .length;
+  const heteroSingleNeighbors = neighbors
+    .filter((neighbor) => neighbor.bond.order === 1)
+    .filter((neighbor) => atomElement(graph.atoms[neighbor.atomIndex]) !== "C")
+    .length;
+  return carbonNeighbors <= 2 && heteroSingleNeighbors === 0;
 }
 
 function findFirstEthyleneGlycolAcetal(graph) {

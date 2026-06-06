@@ -1256,6 +1256,21 @@ const tests = [
     },
   },
   {
+    name: "amino ketones cyclize intramolecularly to imines under acid",
+    run() {
+      const substrate = context.withChemMetadata(context.localMoleculeFromInput("5-aminopentan-2-one"));
+      assert.equal(substrate.canonicalSmiles, "CC(=O)CCCN");
+
+      const [candidate] = context.findReactionCandidates(substrate, resolution(acidHydration));
+      assert.equal(candidate.label, "Cyclic imine");
+      assert.equal(candidate.annotations.mechanism, "intramolecular imine formation");
+      assert.equal(candidate.annotations.selectivity, "5-membered ring");
+      assert.equal(context.hasAldehydeOrKetone(candidate.productSmiles), false);
+      assert.match(candidate.productSmiles, /N/);
+      assert.match(candidate.productSmiles, /=/);
+    },
+  },
+  {
     name: "3-pentanone and diethylamine form enamine candidates",
     async run() {
       assert.equal(context.localMoleculeFromInput("3-pentanone").canonicalSmiles, "CCC(=O)CC");
