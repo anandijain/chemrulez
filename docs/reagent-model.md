@@ -48,3 +48,18 @@ patch.
 This avoids making a hard distinction between "substrate molecules" and
 "reagents". The UI can still show compact named sets, but the data model should
 preserve the underlying chemicals so a user can inspect, copy, and debug a route.
+
+## Known Model Gaps
+
+- Grignard reactions are only partially supported. The app can form simple
+  Grignard reagents and apply some carbonyl additions, but arbitrary
+  organomagnesium reagents, ordered acid workups, incompatible functional
+  groups, and structural carbonyl co-reagents are not yet robust.
+- Multi-component reagent sets need a more general data model. Friedel-Crafts
+  acylation is the current example: `AlCl3` is a fixed condition/activator, while
+  the acid chloride is a structural acyl donor. The current parser handles some
+  cases, but it is not yet a reliable abstraction for arbitrary custom reagent
+  partners.
+- Wittig reactions are not supported. A future implementation probably needs
+  structural ylide/phosphorane reagent partners, carbonyl matching, alkene
+  product generation, and explicit E/Z selectivity annotations.

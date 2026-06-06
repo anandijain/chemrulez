@@ -28,6 +28,19 @@
   class should affect SN1/SN2/E1/E2 ranking.
 - Prefer candidate mixtures with explanations over pretending ambiguous
   conditions give one clean answer.
+- Treat Grignard support as partial and unreliable for now. Formation from simple
+  alkyl halides and some additions work, but the current model does not yet
+  robustly handle arbitrary organomagnesium structures, workup staging,
+  competing functional groups, or general carbonyl partner entry.
+- Improve multi-component reagent sets. Cases such as Grignard additions and
+  Friedel-Crafts acylation need a clearer model for fixed conditions plus
+  structural co-reagents, custom electrophiles/nucleophiles, ordered workups,
+  and inspectable reagent molecules. The current parser handles some common
+  inputs but is not a general solution.
+- Wittig reactions are not supported. The future design needs a way to represent
+  phosphonium ylides or phosphoranes as structural reagent partners, then couple
+  them to aldehydes/ketones with alkene stereochemistry and E/Z selectivity
+  annotations.
 - Eventually support biochemistry/protein puzzles, but keep that as a separate
   engine layer: amino-acid/residue graphs, peptide cleavage/ligation/modification
   rules, protecting groups, and sequence-level views are different from small
