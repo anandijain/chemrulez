@@ -125,6 +125,7 @@ const HBr = reagent("hbr", "HBr", "hydrohalogenation");
 const HBrPeroxides = reagent("hbr_peroxides", "HBr, ROOR", "radical anti-Markovnikov hydrohalogenation");
 const acidHydration = reagent("acid_hydration", "H3O+", "acid-catalyzed alkene hydration");
 const ethyleneGlycolProtection = reagent("ethylene_glycol_acetal_protection", "HOCH2CH2OH, H+", "carbonyl acetal protection");
+const ethanolAcetalProtection = reagent("ethanol_acetal_protection", "excess EtOH, H+", "carbonyl acetal protection");
 const hydroxide = reagent("hydroxide", "NaOH, H2O", "hydroxide nucleophile");
 hydroxide.nucleophile = { token: "O", label: "hydroxide" };
 const cyanide = reagent("cyanide", "NaCN", "cyanide nucleophile");
@@ -1200,6 +1201,37 @@ const tests = [
 
       const [protectedAldehyde] = productsFor("CC=O", ethyleneGlycolProtection);
       assert.equal(protectedAldehyde.productSmiles, "CC1OCCO1");
+    },
+  },
+  {
+    name: "ethanol acid forms reversible diethyl acetals and ketals",
+    async run() {
+      assert.equal(context.resolveKnownReagent("2 EtOH H2SO4").id, "ethanol_acetal_protection");
+      assert.deepEqual(Array.from(context.resolveKnownReagent("2 EtOH H2SO4").acceptedLabels), ["2 EtOH, H2SO4", "EtOH, H+"]);
+
+      const moderateResolution = await context.resolveReagentInput("2 EtOH H2SO4");
+      const [moderate] = context.findReactionCandidates(
+        context.withChemMetadata(context.localMoleculeFromInput("cyclopentanone")),
+        moderateResolution,
+      );
+      assert.equal(moderate.label, "Diethyl acetal/ketal");
+      assert.equal(moderate.bucket, "moderate");
+      assert.equal(moderate.annotations.equilibrium, "reversible; needs driving conditions");
+      assert.equal(context.hasAldehydeOrKetone(moderate.productSmiles), false);
+      assert.equal(context.hasAcetalOrKetal(moderate.productSmiles), true);
+
+      const drivenResolution = await context.resolveReagentInput("excess EtOH H+ remove water");
+      const [driven] = context.findReactionCandidates(
+        context.withChemMetadata(context.localMoleculeFromInput("cyclopentanone")),
+        drivenResolution,
+      );
+      assert.equal(driven.bucket, "high");
+      assert.equal(driven.annotations.equilibrium, "forward favored");
+
+      const [deprotected] = productsFor(driven.productSmiles, acidHydration);
+      assert.equal(deprotected.label, "Carbonyl deprotection");
+      assert.equal(context.hasAldehydeOrKetone(deprotected.productSmiles), true);
+      assert.equal(deprotected.annotations.equilibrium, "reverse favored by aqueous acid");
     },
   },
   {

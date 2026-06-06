@@ -70,6 +70,12 @@ not blindly accept `NaNH2` acetylide alkylation: the carbonyl should be protecte
 first, then the alkyne can be deprotonated/alkylated, then the carbonyl can be
 deprotected.
 
+Some textbook transforms are reversible equilibria. The app should allow the
+pedagogical forward product when the expected reagent set is present, but it
+should mark the equilibrium honestly. Acetal/ketal formation from a carbonyl plus
+alcohol is forward-favored by excess alcohol or water removal; aqueous acid is
+reverse-favored and should hydrolyze the acetal/ketal back to the carbonyl.
+
 Wittig should follow the same structural-partner model:
 
 - classify aldehyde/ketone substrates by graph,
