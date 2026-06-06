@@ -1021,6 +1021,19 @@ const tests = [
     },
   },
   {
+    name: "plain KMnO4 resolves as cold or hot permanganate alternatives",
+    async run() {
+      const resolution = await context.resolveReagentInput("KMnO4");
+      assert.equal(resolution.confidence, "medium");
+      assert.deepEqual(Array.from(resolution.alternatives, (option) => option.reagent.id), ["oso4", "permanganate_oxidation"]);
+
+      const candidates = context.findReactionCandidatesForResolution(molecule("substrate", "C=C"), resolution);
+      assert.equal(candidates.length, 2);
+      assert.deepEqual(Array.from(candidates, (candidate) => candidate.sourceResolution.reagent.id), ["oso4", "permanganate_oxidation"]);
+      assert.deepEqual(Array.from(candidates, (candidate) => candidate.label), ["Syn vicinal diol", "Oxidative cleavage products"]);
+    },
+  },
+  {
     name: "Grignard adds to aldehydes after acid workup",
     run() {
       const [candidate] = productsFor("CC=O", methylGrignard);

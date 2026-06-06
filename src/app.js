@@ -1311,6 +1311,20 @@ async function resolveReagentInput(input) {
 
   const equivalents = parseEquivalents(raw);
   const clean = stripEquivalents(raw);
+  const alternatives = ambiguousKnownReagentAlternatives(clean)
+    .map((reagent) => singleReagentResolution(raw, equivalents, reagent));
+  if (alternatives.length) {
+    return {
+      raw,
+      equivalents,
+      confidence: "medium",
+      reagent: alternatives[0].reagent,
+      reagents: [alternatives[0].reagent],
+      alternatives,
+      score: 1,
+    };
+  }
+
   const reagents = [];
   for (const knownReagent of resolveKnownReagents(clean)) {
     if (!reagents.some((reagent) => reagent.id === knownReagent.id)) reagents.push(knownReagent);
@@ -1339,6 +1353,25 @@ async function resolveReagentInput(input) {
     reagent: null,
     message: "No reagent match yet.",
   };
+}
+
+function singleReagentResolution(raw, equivalents, reagent) {
+  return {
+    raw,
+    equivalents,
+    confidence: "high",
+    reagent,
+    reagents: [reagent],
+    score: 1,
+  };
+}
+
+function ambiguousKnownReagentAlternatives(input) {
+  const normalized = normalizeText(input);
+  if (!["kmno4", "potassiumpermanganate"].includes(normalized)) return [];
+  return ["oso4", "permanganate_oxidation"]
+    .map((id) => reagentAliases.find((reagent) => reagent.id === id))
+    .filter(Boolean);
 }
 
 function stripEquivalents(input) {
@@ -1496,6 +1529,17 @@ function renderResolvedReagent(resolution) {
     return;
   }
 
+  if (resolution.alternatives?.length) {
+    const eq = resolution.equivalents ? `${resolution.equivalents} eq` : "equiv unspecified";
+    els.resolvedReagent.innerHTML = `
+      <span class="pill pill-secondary">ambiguous</span>
+      ${resolution.alternatives.map((option) => `<span class="pill">${escapeHtml(formatReagentLabel(option))}</span>`).join("")}
+      <span class="pill">${escapeHtml(eq)}</span>
+      <span class="pill">choose a product below</span>
+    `;
+    return;
+  }
+
   const reagents = resolution.reagents || [resolution.reagent];
   const eq = resolution.equivalents ? `${resolution.equivalents} eq` : "equiv unspecified";
   const accepted = reagents.flatMap((reagent) => reagent.acceptedLabels || []);
@@ -1518,8 +1562,19 @@ async function applyReagents(input) {
     return;
   }
 
-  const candidates = findReactionCandidates(state.active, resolution);
+  const candidates = findReactionCandidatesForResolution(state.active, resolution);
   renderCandidates(candidates, resolution);
+}
+
+function findReactionCandidatesForResolution(molecule, resolution) {
+  if (!resolution.alternatives?.length) return findReactionCandidates(molecule, resolution);
+
+  return deduplicateCandidates(resolution.alternatives.flatMap((alternative) => {
+    return findReactionCandidatesRaw(molecule, alternative).map((candidateOption) => ({
+      ...candidateOption,
+      sourceResolution: alternative,
+    }));
+  }));
 }
 
 function findReactionCandidates(molecule, resolution) {
@@ -5422,11 +5477,13 @@ function renderCandidates(candidates, resolution) {
       const candidate = normalizeCandidate(rawCandidate);
       const imageUrl = structureImageUrlForSmiles(candidate.productSmiles);
       const disabled = candidate.bucket === "none" ? "disabled" : "";
+      const sourceLabel = candidate.sourceResolution ? formatReagentLabel(candidate.sourceResolution) : "";
       return `
         <article class="candidate">
           <img src="${imageUrl}" alt="Candidate product ${index + 1}">
           <div>
             <span class="tag ${candidate.bucket}">${escapeHtml(candidate.bucket)}</span>
+            ${sourceLabel ? `<span class="pill pill-secondary">${escapeHtml(sourceLabel)}</span>` : ""}
             <h3>${escapeHtml(candidate.label)}</h3>
             <p><code>${escapeHtml(candidate.productSmiles)}</code></p>
             ${reactionAnnotationHtml(candidate.annotations)}
@@ -5444,8 +5501,9 @@ function renderCandidates(candidates, resolution) {
   els.results.querySelectorAll("[data-candidate]").forEach((button) => {
     button.addEventListener("click", () => {
       const candidate = normalizeCandidate(candidates[Number(button.dataset.candidate)]);
+      const candidateResolution = candidate.sourceResolution || resolution;
       if (candidate.productSmiles.includes(".")) {
-        renderFragmentOptions(candidate, resolution);
+        renderFragmentOptions(candidate, candidateResolution);
         setImportStatus("Choose which fragment to continue with.");
         return;
       }
@@ -5463,7 +5521,7 @@ function renderCandidates(candidates, resolution) {
         imageUrl: imageUrlForSmiles(candidate.productSmiles),
         pubchemUrl: pubChemUrlForSmiles(candidate.productSmiles),
       };
-      selectMolecule(product, `${formatReagentLabel(resolution)} -> ${candidate.label}`, {
+      selectMolecule(product, `${formatReagentLabel(candidateResolution)} -> ${candidate.label}`, {
         ruleId: candidate.id,
         annotations: candidate.annotations,
       });
