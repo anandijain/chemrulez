@@ -4900,6 +4900,8 @@ function grignardOrganoFragment(smiles, input) {
   if (normalized.includes("ch3") || normalized.includes("methyl")) return "C";
   if (normalized.includes("c2h5") || normalized.includes("ch3ch2") || normalized.includes("ethyl")) return "CC";
   if (normalized.includes("ph") || normalized.includes("phenyl")) return "c1ccccc1";
+  const graphFragment = grignardOrganoFragmentFromGraph(smiles);
+  if (graphFragment) return graphFragment;
   const organomagnesium = stripStereo(smiles).match(/^(.+)\[Mg\](Cl|Br|I)$/i);
   if (organomagnesium) return organomagnesium[1];
 
@@ -4908,6 +4910,39 @@ function grignardOrganoFragment(smiles, input) {
   if (clean.endsWith("[CH2-]")) return clean.replace("[CH2-]", "C");
   if (/C1=CC=\[C-\]C=C1/i.test(clean)) return "c1ccccc1";
   return null;
+}
+
+function grignardOrganoFragmentFromGraph(smiles) {
+  let parsed;
+  try {
+    parsed = chem.fromSmiles(smiles);
+  } catch {
+    return null;
+  }
+
+  const graph = parsed.graph;
+  for (const atom of graph.atoms) {
+    if (atomElement(atom) !== "MG") continue;
+    const carbonNeighbor = graphNeighbors(graph, atom.id)
+      .find((neighbor) => neighbor.bond.order === 1 && atomElement(graph.atoms[neighbor.atomIndex]) === "C");
+    const halideNeighbor = graphNeighbors(graph, atom.id)
+      .find((neighbor) => neighbor.bond.order === 1 && ["CL", "BR", "I"].includes(atomElement(graph.atoms[neighbor.atomIndex])));
+    if (!carbonNeighbor || !halideNeighbor) continue;
+
+    const product = cloneGraph(graph);
+    removeGraphBond(product, atom.id, carbonNeighbor.atomIndex);
+    const magnesiumAndHalide = connectedAtomSet(product, atom.id, new Set());
+    return neutralizeOrganoFragment(smilesFromConnectedComponent(product, carbonNeighbor.atomIndex, magnesiumAndHalide));
+  }
+  return null;
+}
+
+function neutralizeOrganoFragment(smiles) {
+  return smiles
+    .replace(/\[CH3\]/g, "C")
+    .replace(/\[CH2\]/g, "C")
+    .replace(/\[CH\]/g, "C")
+    .replace(/\[C\]/g, "C");
 }
 
 function groupToAtomToken(group) {

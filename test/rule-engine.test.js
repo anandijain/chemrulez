@@ -629,6 +629,22 @@ const tests = [
     },
   },
   {
+    name: "Grignard substrates survive RDKit-style graph structure keys",
+    run() {
+      assert.equal(context.grignardOrganoFragment("C[CH2][Mg][Br]", "Bromoethane Grignard reagent"), "CC");
+      const [candidate] = context.findReactionCandidates(
+        context.withChemMetadata({
+          displayName: "Bromoethane Grignard reagent",
+          canonicalSmiles: "CC[Mg]Br",
+          structureKey: "C[CH2][Mg][Br]",
+        }),
+        resolution(formaldehydeReagent),
+      );
+      assert.equal(candidate.label, "Alcohol after Grignard addition and acid workup");
+      assert.equal(candidate.productSmiles, "C(O)(CC)");
+    },
+  },
+  {
     name: "formaldehyde resolves locally as a structural co-reactant",
     run() {
       const formaldehyde = context.localMoleculeFromInput("formaldehyde");
