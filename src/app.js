@@ -5540,28 +5540,28 @@ function renderCandidates(candidates, resolution) {
 }
 
 function renderFragmentOptions(candidate, resolution) {
-  const fragments = candidate.productSmiles
-    .split(".")
-    .map((fragment) => fragment.trim())
-    .filter(Boolean);
+  const fragments = uniqueProductFragments(candidate.productSmiles);
   setResultsHtml(fragments
-    .map((fragment, index) => `
+    .map((fragmentOption, index) => {
+      const countLabel = fragmentOption.count > 1 ? ` x${fragmentOption.count}` : "";
+      return `
       <article class="candidate molecule-option">
-        <img src="${imageUrlForSmiles(fragment)}" alt="Product fragment ${index + 1}">
+        <img src="${imageUrlForSmiles(fragmentOption.smiles)}" alt="Product fragment ${index + 1}">
         <div>
-          <span class="tag mixture">Fragment ${index + 1}</span>
+          <span class="tag mixture">Fragment ${index + 1}${escapeHtml(countLabel)}</span>
           <h3>${escapeHtml(candidate.label)} fragment</h3>
-          <p><code>${escapeHtml(fragment)}</code></p>
-          <p><a href="${pubChemUrlForSmiles(fragment)}" target="_blank" rel="noreferrer">Open in PubChem</a></p>
+          <p><code>${escapeHtml(fragmentOption.smiles)}</code></p>
+          <p><a href="${pubChemUrlForSmiles(fragmentOption.smiles)}" target="_blank" rel="noreferrer">Open in PubChem</a></p>
         </div>
         <button data-fragment-option="${index}" aria-label="Use fragment ${index + 1}">Use Fragment</button>
       </article>
-    `)
+    `;
+    })
     .join(""));
 
   els.results.querySelectorAll("[data-fragment-option]").forEach((button) => {
     button.addEventListener("click", () => {
-      const fragment = fragments[Number(button.dataset.fragmentOption)];
+      const fragment = fragments[Number(button.dataset.fragmentOption)].smiles;
       const product = {
         id: `derived:${candidate.id}:fragment:${button.dataset.fragmentOption}:${Date.now()}`,
         cid: null,
@@ -5588,6 +5588,23 @@ function renderFragmentOptions(candidate, resolution) {
   });
 
   queueMicrotask(() => firstEnabledCandidateButton()?.focus({ preventScroll: true }));
+}
+
+function uniqueProductFragments(productSmiles) {
+  const fragments = productSmiles
+    .split(".")
+    .map((fragment) => fragment.trim())
+    .filter(Boolean);
+  const unique = [];
+  for (const fragment of fragments) {
+    const existing = unique.find((option) => sameProductGraph(option.smiles, fragment));
+    if (existing) {
+      existing.count += 1;
+    } else {
+      unique.push({ smiles: fragment, count: 1 });
+    }
+  }
+  return unique;
 }
 
 function renderMoleculeOptions(molecules) {

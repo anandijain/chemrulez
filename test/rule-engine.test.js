@@ -1011,6 +1011,18 @@ const tests = [
     },
   },
   {
+    name: "fragment picker deduplicates identical product fragments with counts",
+    run() {
+      const [ethene] = productsFor("C=C", hotPermanganate);
+      assert.equal(ethene.productSmiles, "C(=O)=O.C(=O)=O");
+
+      const fragments = context.uniqueProductFragments(ethene.productSmiles);
+      assert.equal(fragments.length, 1);
+      assert.equal(fragments[0].smiles, "C(=O)=O");
+      assert.equal(fragments[0].count, 2);
+    },
+  },
+  {
     name: "hot permanganate maps alkene hydrogens to acids and ketones",
     run() {
       const [disubstituted] = productsFor("CC=CC", hotPermanganate);
