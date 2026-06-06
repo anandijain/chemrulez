@@ -999,6 +999,28 @@ const tests = [
     },
   },
   {
+    name: "hot permanganate cleaves terminal alkenes through carbon dioxide",
+    run() {
+      const [propene] = productsFor("CC=C", hotPermanganate);
+      assert.equal(propene.label, "Oxidative cleavage products");
+      assert.equal(propene.productSmiles, "C(=O)(O)C.C(=O)=O");
+      assert.equal(propene.annotations.mechanism, "hot permanganate oxidative cleavage");
+
+      const [ethene] = productsFor("C=C", hotPermanganate);
+      assert.equal(ethene.productSmiles, "C(=O)=O.C(=O)=O");
+    },
+  },
+  {
+    name: "hot permanganate maps alkene hydrogens to acids and ketones",
+    run() {
+      const [disubstituted] = productsFor("CC=CC", hotPermanganate);
+      assert.equal(disubstituted.productSmiles, "C(=O)(O)C.C(=O)(O)C");
+
+      const [trisubstituted] = productsFor("CC=C(C)C", hotPermanganate);
+      assert.equal(trisubstituted.productSmiles, "C(=O)(O)C.C(C)(=O)C");
+    },
+  },
+  {
     name: "Grignard adds to aldehydes after acid workup",
     run() {
       const [candidate] = productsFor("CC=O", methylGrignard);
@@ -1106,6 +1128,31 @@ const tests = [
       assert.equal(candidates.length, 1);
       assert.equal(candidates[0].label, "Major enamine");
       assert.equal(candidates[0].annotations.mechanism, "enamine formation");
+    },
+  },
+  {
+    name: "candidate dedupe is engine-level for equivalent product graphs",
+    run() {
+      const candidates = context.deduplicateCandidates([
+        {
+          label: "Equivalent product",
+          bucket: "high",
+          productSmiles: "CCO",
+        },
+        {
+          label: "Equivalent product",
+          bucket: "high",
+          productSmiles: "OCC",
+        },
+        {
+          label: "Different annotation bucket stays separate",
+          bucket: "minor",
+          productSmiles: "OCC",
+        },
+      ]);
+      assert.equal(candidates.length, 2);
+      assert.equal(candidates[0].productSmiles, "CCO");
+      assert.equal(candidates[1].bucket, "minor");
     },
   },
   {

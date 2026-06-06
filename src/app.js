@@ -1523,6 +1523,10 @@ async function applyReagents(input) {
 }
 
 function findReactionCandidates(molecule, resolution) {
+  return deduplicateCandidates(findReactionCandidatesRaw(molecule, resolution));
+}
+
+function findReactionCandidatesRaw(molecule, resolution) {
   const reagents = resolution.reagents || [resolution.reagent];
   const substrateSmiles = reactionSmilesForMolecule(molecule);
   const sodiumAmide = reagents.find((reagent) => reagent.id === "sodium_amide");
@@ -1966,6 +1970,30 @@ function alkeneReactionCandidates(molecule, reagentIds) {
         explanation: [
           "Bromine adds across alkenes to form vicinal dibromides.",
           "The mechanism is anti addition through a bromonium ion; stereochemistry is not yet drawn explicitly.",
+        ],
+      }),
+    ];
+  }
+
+  if (reagentIds.has("permanganate_oxidation")) {
+    return [
+      candidate({
+        id: "alkene_permanganate_oxidative_cleavage",
+        label: "Oxidative cleavage products",
+        productName: `${molecule.displayName} oxidative cleavage products`,
+        productSmiles: oxidativeCleavageFirstAlkene(smiles),
+        bucket: "high",
+        confidence: 0.74,
+        annotations: {
+          stereochemistry: "consumed",
+          selectivity: "cleavage",
+          mechanism: "hot permanganate oxidative cleavage",
+          warnings: ["This first-pass rule models alkene oxidative cleavage products, not detailed workup conditions."],
+        },
+        explanation: [
+          "Hot acidic permanganate cleaves alkenes oxidatively.",
+          "Alkene carbons with one H become carboxylic acids; terminal CH2 alkene carbons become CO2.",
+          "Alkene carbons with no H become ketones.",
         ],
       }),
     ];
@@ -2541,6 +2569,24 @@ function classifyGrignard(molecule, input) {
 
 function candidate(options) {
   return normalizeCandidate(options);
+}
+
+function deduplicateCandidates(candidates) {
+  const unique = [];
+  for (const rawCandidate of candidates) {
+    const candidateOption = normalizeCandidate(rawCandidate);
+    const existing = unique.find((other) => {
+      return other.label === candidateOption.label
+        && other.bucket === candidateOption.bucket
+        && sameProductGraph(other.productSmiles, candidateOption.productSmiles);
+    });
+    if (!existing) {
+      unique.push(candidateOption);
+    } else if ((candidateOption.confidence || 0) > (existing.confidence || 0)) {
+      Object.assign(existing, candidateOption);
+    }
+  }
+  return unique;
 }
 
 function normalizeCandidate(options) {
@@ -3342,6 +3388,43 @@ function ozonolyzeFirstAlkene(smiles) {
   const oxygenB = addGraphAtom(product, "O");
   addGraphBond(product.bonds, alkene.from, oxygenA, 2);
   addGraphBond(product.bonds, alkene.to, oxygenB, 2);
+  product.root = alkene.from;
+  product.hasRings = graphHasCycle(product.atoms, product.bonds);
+  product.hasDisconnectedComponents = hasMultipleConnectedComponents(product);
+  return smilesFromGraphComponents(product, [alkene.from, alkene.to]);
+}
+
+function oxidativeCleavageFirstAlkene(smiles) {
+  let parsed;
+  try {
+    parsed = chem.fromSmiles(smiles);
+  } catch {
+    return smiles;
+  }
+
+  const alkene = findFirstCarbonCarbonBondOrder(parsed.graph, 2);
+  if (!alkene) return smiles;
+
+  const hydrogens = new Map([
+    [alkene.from, implicitHydrogenCount(parsed.graph, alkene.from)],
+    [alkene.to, implicitHydrogenCount(parsed.graph, alkene.to)],
+  ]);
+  const product = cloneGraph(parsed.graph);
+  removeGraphBond(product, alkene.from, alkene.to);
+
+  for (const carbonIndex of [alkene.from, alkene.to]) {
+    const carbonylOxygen = addGraphAtom(product, "O");
+    addGraphBond(product.bonds, carbonIndex, carbonylOxygen, 2);
+    const hydrogenCount = hydrogens.get(carbonIndex) || 0;
+    if (hydrogenCount >= 2) {
+      const secondOxygen = addGraphAtom(product, "O");
+      addGraphBond(product.bonds, carbonIndex, secondOxygen, 2);
+    } else if (hydrogenCount === 1) {
+      const hydroxylOxygen = addGraphAtom(product, "O");
+      addGraphBond(product.bonds, carbonIndex, hydroxylOxygen, 1);
+    }
+  }
+
   product.root = alkene.from;
   product.hasRings = graphHasCycle(product.atoms, product.bonds);
   product.hasDisconnectedComponents = hasMultipleConnectedComponents(product);
