@@ -125,7 +125,6 @@ const HBr = reagent("hbr", "HBr", "hydrohalogenation");
 const HBrPeroxides = reagent("hbr_peroxides", "HBr, ROOR", "radical anti-Markovnikov hydrohalogenation");
 const acidHydration = reagent("acid_hydration", "H3O+", "acid-catalyzed alkene hydration");
 const ethyleneGlycolProtection = reagent("ethylene_glycol_acetal_protection", "HOCH2CH2OH, H+", "carbonyl acetal protection");
-const ethanolAcetalProtection = reagent("ethanol_acetal_protection", "excess EtOH, H+", "carbonyl acetal protection");
 const hydroxide = reagent("hydroxide", "NaOH, H2O", "hydroxide nucleophile");
 hydroxide.nucleophile = { token: "O", label: "hydroxide" };
 const cyanide = reagent("cyanide", "NaCN", "cyanide nucleophile");
@@ -1204,27 +1203,31 @@ const tests = [
     },
   },
   {
-    name: "ethanol acid forms reversible diethyl acetals and ketals",
+    name: "acid plus structural alcohols forms reversible acetals and ketals",
     async run() {
-      assert.equal(context.resolveKnownReagent("2 EtOH H2SO4").id, "ethanol_acetal_protection");
-      assert.deepEqual(Array.from(context.resolveKnownReagent("2 EtOH H2SO4").acceptedLabels), ["2 EtOH, H2SO4", "EtOH, H+"]);
+      assert.equal(context.resolveKnownReagent("H2SO4").id, "acid_catalyst");
 
-      const moderateResolution = await context.resolveReagentInput("2 EtOH H2SO4");
+      const ethanol = await context.resolveReagentInput("2 EtOH H2SO4");
+      assert.ok(ethanol.reagents.some((reagent) => reagent.id === "acid_catalyst"));
+      assert.ok(ethanol.reagents.some((reagent) => reagent.kind === "alcohol acetal donor" && reagent.molecule.canonicalSmiles === "CCO"));
+
       const [moderate] = context.findReactionCandidates(
         context.withChemMetadata(context.localMoleculeFromInput("cyclopentanone")),
-        moderateResolution,
+        ethanol,
       );
-      assert.equal(moderate.label, "Diethyl acetal/ketal");
+      assert.equal(moderate.label, "Acyclic acetal/ketal");
       assert.equal(moderate.bucket, "moderate");
       assert.equal(moderate.annotations.equilibrium, "reversible; needs driving conditions");
       assert.equal(context.hasAldehydeOrKetone(moderate.productSmiles), false);
       assert.equal(context.hasAcetalOrKetal(moderate.productSmiles), true);
 
-      const drivenResolution = await context.resolveReagentInput("excess EtOH H+ remove water");
+      const drivenResolution = await context.resolveReagentInput("excess MeOH H2SO4 remove water");
+      assert.ok(drivenResolution.reagents.some((reagent) => reagent.kind === "alcohol acetal donor" && reagent.molecule.canonicalSmiles === "CO"));
       const [driven] = context.findReactionCandidates(
         context.withChemMetadata(context.localMoleculeFromInput("cyclopentanone")),
         drivenResolution,
       );
+      assert.equal(driven.label, "Acyclic acetal/ketal");
       assert.equal(driven.bucket, "high");
       assert.equal(driven.annotations.equilibrium, "forward favored");
 

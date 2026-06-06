@@ -223,6 +223,27 @@ const localMolecules = [
     molecularWeight: "88.11",
   },
   {
+    keys: ["methanol", "meoh"],
+    displayName: "Methanol",
+    canonicalSmiles: "CO",
+    formula: "CH4O",
+    molecularWeight: "32.04",
+  },
+  {
+    keys: ["ethanol", "etoh", "ethylalcohol", "ethyl alcohol"],
+    displayName: "Ethanol",
+    canonicalSmiles: "CCO",
+    formula: "C2H6O",
+    molecularWeight: "46.07",
+  },
+  {
+    keys: ["ethyleneglycol", "ethylene glycol", "hoch2ch2oh"],
+    displayName: "Ethylene glycol",
+    canonicalSmiles: "OCCO",
+    formula: "C2H6O2",
+    molecularWeight: "62.07",
+  },
+  {
     keys: ["cyclopentanone"],
     displayName: "Cyclopentanone",
     canonicalSmiles: "O=C1CCCC1",
@@ -1463,13 +1484,13 @@ function reagentIsCarboxylicAcidPartner(reagent) {
 function extractStructuralReagentTexts(input) {
   const parts = input
     .split(/\b(?:then|followed by|and then|plus|with)\b|[,;+]|\d+\./i)
-    .map((part) => removeKnownReagentWords(part).trim())
+    .map((part) => normalizeStructuralReagentText(removeKnownReagentWords(part)))
     .filter(Boolean);
 
-  const structural = parts.filter((part) => !resolveKnownReagent(part));
+  const structural = parts.filter((part) => localMoleculeFromInput(part) || !resolveKnownReagent(part));
   if (structural.length) return structural;
 
-  const stripped = removeKnownReagentWords(input).trim();
+  const stripped = normalizeStructuralReagentText(removeKnownReagentWords(input));
   return stripped === input.trim() && stripped ? [stripped] : [];
 }
 
@@ -1485,6 +1506,14 @@ function removeKnownReagentWords(input) {
   }, input).replace(/\b(?:then|followed by|and then|plus|with)\b/gi, " ");
 }
 
+function normalizeStructuralReagentText(input) {
+  return input
+    .replace(/\b\d+(\.\d+)?\s*(eq|equiv|equivalent|equivalents)\b/gi, "")
+    .replace(/\b(excess|remove\s+water|water\s+removal|dean-?stark|molecular\s+sieves|dry)\b/gi, "")
+    .replace(/^\s*\d+(\.\d+)?\s+/, "")
+    .trim();
+}
+
 async function resolveStructuralReagent(input) {
   try {
     const molecule = await fetchMoleculeLenient(input);
@@ -1494,6 +1523,8 @@ async function resolveStructuralReagent(input) {
     if (acidChloride) return acidChloride;
     const amine = classifyAmine(molecule, input);
     if (amine) return amine;
+    const alcohol = classifyAlcoholDonor(molecule, input);
+    if (alcohol) return alcohol;
     const alkylHalide = classifyAlkylHalide(molecule, input);
     if (alkylHalide) return alkylHalide;
     return {
@@ -1610,6 +1641,7 @@ function findReactionCandidatesRaw(molecule, resolution) {
   const structuralAmine = reagents.find((reagent) => reagent.kind === "primary amine imine donor" || reagent.kind === "secondary amine enamine donor");
   const structuralCarbonyl = reagents.find((reagent) => reagentIsCarbonylPartner(reagent));
   const structuralCarboxylicAcid = reagents.find((reagent) => reagentIsCarboxylicAcidPartner(reagent));
+  const structuralAlcohol = reagents.find((reagent) => reagent.kind === "alcohol acetal donor" || reagent.kind === "diol acetal donor");
   const nucleophile = reagents.find((reagent) => reagentHasRole(reagent, "nucleophile"));
   const reagentIds = new Set(reagents.map((reagent) => reagent.id));
   const hydrideReagent = reagents.find((reagent) => isCarbonylHydrideReagent(reagent.id));
@@ -1625,8 +1657,8 @@ function findReactionCandidatesRaw(molecule, resolution) {
     return acetalProtectionCandidates(molecule);
   }
 
-  if (reagentIds.has("ethanol_acetal_protection")) {
-    return ethanolAcetalProtectionCandidates(molecule, resolution);
+  if (structuralAlcohol && hasAcetalFormationAcid(reagentIds)) {
+    return alcoholAcetalProtectionCandidates(molecule, structuralAlcohol, resolution);
   }
 
   if (substrateAlkylHalide && reagentIds.has("mg_ether") && structuralCarboxylicAcid) {
@@ -2532,6 +2564,43 @@ function findFirstAmine(graph) {
     };
   }
   return null;
+}
+
+function classifyAlcoholDonor(molecule, input) {
+  let parsed;
+  try {
+    parsed = chem.fromSmiles(reactionSmilesForMolecule(molecule));
+  } catch {
+    return null;
+  }
+
+  const alcohols = alcoholSites(parsed.graph);
+  if (!alcohols.length) return null;
+  const diol = alcohols.length >= 2;
+  return {
+    id: `alcohol_donor_${molecule.cid || normalizeText(input)}`,
+    canonical: molecule.displayName || input,
+    kind: diol ? "diol acetal donor" : "alcohol acetal donor",
+    molecule,
+    alcoholCount: alcohols.length,
+    alkoxySmiles: alkoxyFragmentSmiles(parsed.graph, alcohols[0]),
+  };
+}
+
+function alcoholSites(graph) {
+  const sites = [];
+  for (const atom of graph.atoms) {
+    if (atomElement(atom) !== "O") continue;
+    if (implicitHydrogenCount(graph, atom.id) < 1) continue;
+    const carbonNeighbor = graphNeighbors(graph, atom.id)
+      .find((neighbor) => neighbor.bond.order === 1 && atomElement(graph.atoms[neighbor.atomIndex]) === "C");
+    if (carbonNeighbor) sites.push({ oxygen: atom.id, carbon: carbonNeighbor.atomIndex });
+  }
+  return sites;
+}
+
+function alkoxyFragmentSmiles(graph, alcohol) {
+  return smilesFromConnectedComponent(graph, alcohol.oxygen, new Set());
 }
 
 function classifyAlkylHalideFromGraph(molecule, input) {
@@ -3864,14 +3933,17 @@ function acetalProtectionCandidates(molecule) {
   ];
 }
 
-function ethanolAcetalProtectionCandidates(molecule, resolution) {
+function alcoholAcetalProtectionCandidates(molecule, alcohol, resolution) {
   const smiles = reactionSmilesForMolecule(molecule);
-  const productSmiles = protectFirstCarbonylAsDiethylAcetal(smiles);
+  const cyclic = alcohol.kind === "diol acetal donor";
+  const productSmiles = cyclic
+    ? protectFirstCarbonylAsEthyleneGlycolAcetal(smiles)
+    : protectFirstCarbonylWithAlcohol(smiles, alcohol.alkoxySmiles);
   const drivenForward = acetalFormationDrivenForward(resolution);
   if (!productSmiles) {
     return [
       candidate({
-        id: "ethanol_acetal_protection_no_carbonyl",
+        id: "alcohol_acetal_protection_no_carbonyl",
         label: "No aldehyde or ketone carbonyl found",
         productName: molecule.displayName,
         productSmiles: smiles,
@@ -3881,7 +3953,7 @@ function ethanolAcetalProtectionCandidates(molecule, resolution) {
           stereochemistry: "unchanged",
           selectivity: "none",
           equilibrium: "not applicable",
-          warnings: ["EtOH/H+ acetal formation needs an aldehyde or ketone carbonyl."],
+          warnings: [`${alcohol.canonical}/H+ acetal formation needs an aldehyde or ketone carbonyl.`],
         },
         explanation: [
           "Alcohol and acid form acetals/ketals from aldehydes or ketones.",
@@ -3893,9 +3965,9 @@ function ethanolAcetalProtectionCandidates(molecule, resolution) {
 
   return [
     candidate({
-      id: "ethanol_acetal_protection",
-      label: "Diethyl acetal/ketal",
-      productName: `${molecule.displayName} diethyl acetal/ketal`,
+      id: "alcohol_acetal_protection",
+      label: cyclic ? "Cyclic acetal/ketal" : "Acyclic acetal/ketal",
+      productName: `${molecule.displayName} ${cyclic ? "cyclic" : "acyclic"} acetal/ketal`,
       productSmiles,
       bucket: drivenForward ? "high" : "moderate",
       confidence: drivenForward ? 0.78 : 0.58,
@@ -3909,9 +3981,11 @@ function ethanolAcetalProtectionCandidates(molecule, resolution) {
           : ["Acetal/ketal formation is reversible; ordinary aqueous acid favors hydrolysis. Use excess EtOH or remove water to drive formation."],
       },
       explanation: [
-        "Two equivalents of ethanol under acid can convert an aldehyde or ketone into an acetal/ketal.",
+        cyclic
+          ? `${alcohol.canonical} under acid can convert an aldehyde or ketone into a cyclic acetal/ketal.`
+          : `Two equivalents of ${alcohol.canonical} under acid can convert an aldehyde or ketone into an acetal/ketal.`,
         drivenForward
-          ? "The reagent text includes excess ethanol or water removal, so the forward direction is treated as favored."
+          ? "The reagent text includes excess alcohol or water removal, so the forward direction is treated as favored."
           : "This is an equilibrium step; without excess alcohol or water removal, the forward product is only a moderate-confidence candidate.",
         "Aqueous acid hydrolyzes the acetal/ketal back to the carbonyl.",
       ],
@@ -3922,6 +3996,10 @@ function ethanolAcetalProtectionCandidates(molecule, resolution) {
 function acetalFormationDrivenForward(resolution) {
   const raw = normalizeText(resolution?.raw || "");
   return /excess|removewater|waterremoval|deanstark|molecularsieves|dry/.test(raw);
+}
+
+function hasAcetalFormationAcid(reagentIds) {
+  return reagentIds.has("acid_catalyst") || reagentIds.has("acid_hydration");
 }
 
 function acetalDeprotectionCandidates(molecule) {
@@ -4307,15 +4385,15 @@ function protectFirstCarbonylAsEthyleneGlycolAcetal(smiles) {
   }
 }
 
-function protectFirstCarbonylAsDiethylAcetal(smiles) {
+function protectFirstCarbonylWithAlcohol(smiles, alkoxySmiles) {
   try {
     const parsed = chem.fromSmiles(smiles);
     const carbonyl = findFirstAldehydeOrKetoneCarbonyl(parsed.graph);
     if (!carbonyl) return null;
     const product = cloneGraph(parsed.graph);
     removeGraphBond(product, carbonyl.carbon, carbonyl.oxygen);
-    addFragmentToAtom(product, carbonyl.carbon, "OCC");
-    addFragmentToAtom(product, carbonyl.carbon, "OCC");
+    addFragmentToAtom(product, carbonyl.carbon, alkoxySmiles);
+    addFragmentToAtom(product, carbonyl.carbon, alkoxySmiles);
     product.root = bestRootForProduct(product, carbonyl.carbon);
     product.hasRings = graphHasCycle(product.atoms, product.bonds);
     product.hasDisconnectedComponents = hasMultipleConnectedComponents(product);

@@ -75,6 +75,11 @@ pedagogical forward product when the expected reagent set is present, but it
 should mark the equilibrium honestly. Acetal/ketal formation from a carbonyl plus
 alcohol is forward-favored by excess alcohol or water removal; aqueous acid is
 reverse-favored and should hydrolyze the acetal/ketal back to the carbonyl.
+This should be modeled as acid catalyst plus a graph-classified alcohol or diol
+partner, not as separate hard-coded reagent aliases for ethanol, methanol, and
+other alcohols. Short symbolic aliases such as `H+` or `OH-` are risky in the
+current normalized matcher because punctuation is stripped; prefer concrete
+exam-arrow acids/bases such as `H2SO4`, `p-TsOH`, `NaOH`, or `hydroxide`.
 
 Wittig should follow the same structural-partner model:
 
