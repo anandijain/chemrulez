@@ -1881,6 +1881,12 @@ function findReactionCandidatesRaw(molecule, resolution) {
     return cyanohydrinHydrolysisCandidates(molecule);
   }
 
+  if (reagentIds.has("wolff_kishner")) {
+    return hasAldehydeOrKetone(substrateSmiles)
+      ? carbonylDeoxygenationCandidates(molecule)
+      : noCarbonylDeoxygenationCandidate(molecule);
+  }
+
   if (hydrideReagent) {
     return hasAldehydeOrKetone(substrateSmiles)
       ? carbonylReductionCandidates(molecule, hydrideReagent)
@@ -4040,6 +4046,78 @@ function cyanohydrinHydrolysisCandidates(molecule) {
   ];
 }
 
+function carbonylDeoxygenationCandidates(molecule) {
+  const smiles = reactionSmilesForMolecule(molecule);
+  const productSmiles = deoxygenateFirstAldehydeOrKetone(smiles);
+  if (!productSmiles) {
+    return [
+      candidate({
+        id: "wolff_kishner_no_product",
+        label: "No deoxygenation product",
+        productName: molecule.displayName,
+        productSmiles: smiles,
+        bucket: "none",
+        confidence: 0.48,
+        annotations: {
+          stereochemistry: "unchanged",
+          selectivity: "none",
+          mechanism: "Wolff-Kishner reduction",
+          warnings: ["The app found a carbonyl but could not serialize the deoxygenated product."],
+        },
+        explanation: [
+          "Wolff-Kishner conditions reduce aldehydes and ketones to hydrocarbons.",
+          "This substrate was outside the current carbonyl-deoxygenation serializer.",
+        ],
+      }),
+    ];
+  }
+
+  return [
+    candidate({
+      id: "wolff_kishner_reduction",
+      label: "Carbonyl deoxygenation",
+      productName: `${molecule.displayName} deoxygenated product`,
+      productSmiles,
+      bucket: "high",
+      confidence: 0.82,
+      annotations: {
+        stereochemistry: "carbonyl stereochemistry not applicable",
+        selectivity: "aldehyde/ketone to alkane",
+        mechanism: "Wolff-Kishner reduction",
+      },
+      explanation: [
+        "Hydrazine forms a hydrazone with the aldehyde or ketone.",
+        "Strong base and heat drive loss of nitrogen and replace C=O with CH2.",
+        "This deoxygenates aldehydes and ketones; esters, acids, and amides are outside this rule.",
+      ],
+    }),
+  ];
+}
+
+function noCarbonylDeoxygenationCandidate(molecule) {
+  const smiles = reactionSmilesForMolecule(molecule);
+  return [
+    candidate({
+      id: "wolff_kishner_no_carbonyl",
+      label: "No aldehyde or ketone carbonyl found",
+      productName: molecule.displayName,
+      productSmiles: smiles,
+      bucket: "none",
+      confidence: 0.78,
+      annotations: {
+        stereochemistry: "unchanged",
+        selectivity: "none",
+        mechanism: "Wolff-Kishner reduction",
+        warnings: ["Wolff-Kishner reduction needs an aldehyde or ketone in this rule set."],
+      },
+      explanation: [
+        "Wolff-Kishner conditions reduce aldehydes and ketones to hydrocarbons.",
+        "The current substrate does not contain an aldehyde or ketone carbonyl.",
+      ],
+    }),
+  ];
+}
+
 function carbonylReductionCandidates(molecule, reagent = { canonical: "hydride reagent" }) {
   const smiles = reactionSmilesForMolecule(molecule);
   const productSmiles = reduceFirstCarbonylToAlcohol(smiles);
@@ -4718,6 +4796,28 @@ function reduceFirstCarbonylToAlcohol(smiles) {
     if (clean.endsWith("C=O")) return `${clean.slice(0, -3)}CO`;
     if (clean === "C=O") return "CO";
     if (clean.includes("C=O")) return clean.replace("C=O", "CO");
+  }
+  return null;
+}
+
+function deoxygenateFirstAldehydeOrKetone(smiles) {
+  try {
+    const parsed = chem.fromSmiles(smiles);
+    const carbonyl = findFirstAldehydeOrKetoneCarbonyl(parsed.graph);
+    if (!carbonyl) return null;
+    const product = cloneGraph(parsed.graph);
+    removeGraphBond(product, carbonyl.carbon, carbonyl.oxygen);
+    product.atoms[carbonyl.oxygen].token = "*";
+    product.root = bestRootForProduct(product, carbonyl.carbon);
+    product.hasRings = graphHasCycle(product.atoms, product.bonds);
+    product.hasDisconnectedComponents = hasMultipleConnectedComponents(product);
+    return smilesFromConnectedComponent(product, product.root, new Set([carbonyl.oxygen]));
+  } catch {
+    const clean = stripStereo(smiles);
+    if (clean === "C=O") return "C";
+    if (clean.includes("C(=O)")) return clean.replace("C(=O)", "C");
+    if (clean.endsWith("C=O")) return `${clean.slice(0, -3)}C`;
+    if (clean.includes("C=O")) return clean.replace("C=O", "C");
   }
   return null;
 }

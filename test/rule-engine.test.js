@@ -143,6 +143,7 @@ const OsO4 = reagent("oso4", "OsO4", "syn dihydroxylation");
 const ozone = reagent("ozonolysis_reductive", "1. O3  2. DMS", "reductive ozonolysis");
 const NaBH4 = reagent("sodium_borohydride", "NaBH4", "mild carbonyl hydride reduction");
 const LiAlH4 = reagent("lithium_aluminum_hydride", "1. LiAlH4  2. H3O+", "strong hydride reduction");
+const WolffKishner = reagent("wolff_kishner", "1. NH2NH2  2. KOH, heat", "carbonyl deoxygenation");
 const DIBAL = reagent("dibal_ester_reduction", "1. DIBAL-H, toluene, -78 C  2. H3O+", "selective ester reduction");
 const AlCl3 = reagent("friedel_crafts_acylation", "AlCl3", "Friedel-Crafts acylation conditions");
 const acetylChloride = reagent("acid_chloride_acetyl_chloride", "Acetyl chloride", "acid chloride acyl donor");
@@ -1245,6 +1246,26 @@ const tests = [
       assert.equal(ketone.productSmiles, "CC(O)C");
 
       const [alcohol] = productsFor("CCCCCO", NaBH4);
+      assert.equal(alcohol.label, "No aldehyde or ketone carbonyl found");
+      assert.equal(alcohol.bucket, "none");
+    },
+  },
+  {
+    name: "Wolff-Kishner reduces aldehydes and ketones to hydrocarbons",
+    run() {
+      assert.equal(context.resolveKnownReagent("wolf kischner").id, "wolff_kishner");
+      assert.equal(context.resolveKnownReagent("hydrazine KOH heat").canonical, "1. NH2NH2  2. KOH, heat");
+
+      const [aldehyde] = productsFor("CC=O", WolffKishner);
+      assert.equal(aldehyde.label, "Carbonyl deoxygenation");
+      assert.equal(aldehyde.productSmiles, "CC");
+      assert.equal(aldehyde.annotations.mechanism, "Wolff-Kishner reduction");
+
+      const [ketone] = productsFor("CC(C)=O", WolffKishner);
+      assert.equal(ketone.productSmiles, "CCC");
+      assert.equal(context.hasAldehydeOrKetone(ketone.productSmiles), false);
+
+      const [alcohol] = productsFor("CCO", WolffKishner);
       assert.equal(alcohol.label, "No aldehyde or ketone carbonyl found");
       assert.equal(alcohol.bucket, "none");
     },

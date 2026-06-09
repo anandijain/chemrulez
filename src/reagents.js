@@ -335,6 +335,21 @@ export const reagentAliases = [
     ],
   },
   {
+    id: "wolff_kishner",
+    canonical: "1. NH2NH2  2. KOH, heat",
+    acceptedLabels: ["Wolff-Kishner", "NH2NH2, KOH, heat"],
+    kind: "carbonyl deoxygenation",
+    aliases: [
+      "wolff kishner",
+      "wolff-kishner",
+      "wolf kischner",
+      "wolf-kischner",
+      "hydrazine koh heat",
+      "nh2nh2 koh heat",
+      "nh2nh2 base heat",
+    ],
+  },
+  {
     id: "dibal_ester_reduction",
     canonical: "1. DIBAL-H, toluene, -78 C  2. H3O+",
     acceptedLabels: ["DIBAL-H"],
