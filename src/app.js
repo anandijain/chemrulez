@@ -1877,6 +1877,10 @@ function findReactionCandidatesRaw(molecule, resolution) {
     return cyanohydrinLahReductionCandidates(molecule);
   }
 
+  if (reagentIds.has("lithium_aluminum_hydride") && hasCarboxylicAcid(substrateSmiles)) {
+    return carboxylicAcidLahReductionCandidates(molecule);
+  }
+
   if (reagentIds.has("acid_heat") && hasCyanohydrin(substrateSmiles)) {
     return cyanohydrinHydrolysisCandidates(molecule);
   }
@@ -3941,6 +3945,53 @@ function esterLahReductionCandidates(molecule) {
   ];
 }
 
+function carboxylicAcidLahReductionCandidates(molecule) {
+  const smiles = reactionSmilesForMolecule(molecule);
+  const productSmiles = reduceFirstCarboxylicAcidToAlcohol(smiles);
+  if (!productSmiles) {
+    return [
+      candidate({
+        id: "lah_carboxylic_acid_reduction_no_product",
+        label: "No carboxylic acid reduction product",
+        productName: molecule.displayName,
+        productSmiles: smiles,
+        bucket: "none",
+        confidence: 0.45,
+        annotations: {
+          stereochemistry: "unchanged at nonreacting centers",
+          selectivity: "none",
+          warnings: ["The app found a carboxylic acid but could not serialize the LAH alcohol product."],
+        },
+        explanation: [
+          "LiAlH4 can reduce carboxylic acids to primary alcohols after acid workup.",
+          "This substrate was outside the currently serializable carboxylic-acid reduction subset.",
+        ],
+      }),
+    ];
+  }
+
+  return [
+    candidate({
+      id: "lah_carboxylic_acid_to_alcohol",
+      label: "Carboxylic acid reduction to alcohol",
+      productName: `${molecule.displayName} LAH alcohol`,
+      productSmiles,
+      bucket: "high",
+      confidence: 0.82,
+      annotations: {
+        stereochemistry: "unchanged at nonreacting centers",
+        selectivity: "strong hydride reduction",
+        mechanism: "carboxylic acid reduction to alcohol",
+      },
+      explanation: [
+        "LiAlH4 is strong enough to reduce carboxylic acids after initial acid-base reaction.",
+        "Acid workup gives the corresponding primary alcohol.",
+        "NaBH4 is not strong enough for this ordinary first-year rule.",
+      ],
+    }),
+  ];
+}
+
 function isCarbonylHydrideReagent(reagentId) {
   return reagentId === "sodium_borohydride" || reagentId === "lithium_aluminum_hydride";
 }
@@ -5064,6 +5115,27 @@ function reduceFirstEsterToAlcoholFragments(smiles) {
     const acylAlcohol = smilesFromConnectedComponent(product, acylRoot, new Set());
     const alkoxyAlcohol = smilesFromConnectedComponent(product, alkoxyRoot, new Set());
     return [acylAlcohol, alkoxyAlcohol].filter(Boolean).join(".");
+  } catch {
+    return null;
+  }
+}
+
+function reduceFirstCarboxylicAcidToAlcohol(smiles) {
+  try {
+    const parsed = chem.fromSmiles(smiles);
+    const acid = findFirstCarboxylicAcid(parsed.graph);
+    if (!acid) return null;
+    const product = cloneGraph(parsed.graph);
+    removeGraphBond(product, acid.carbonylCarbon, acid.hydroxylOxygen);
+    const carbonylBond = graphBondBetween(product, acid.carbonylCarbon, acid.carbonylOxygen);
+    if (!carbonylBond) return null;
+    carbonylBond.order = 1;
+    product.atoms[acid.carbonylOxygen].token = "O";
+    product.atoms[acid.hydroxylOxygen].token = "*";
+    product.root = bestRootForProduct(product, acid.carbonylCarbon);
+    product.hasRings = graphHasCycle(product.atoms, product.bonds);
+    product.hasDisconnectedComponents = hasMultipleConnectedComponents(product);
+    return smilesFromConnectedComponent(product, product.root, new Set([acid.hydroxylOxygen]));
   } catch {
     return null;
   }

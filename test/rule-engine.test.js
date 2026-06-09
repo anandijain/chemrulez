@@ -1447,6 +1447,22 @@ const tests = [
     },
   },
   {
+    name: "LiAlH4 reduces carboxylic acids to primary alcohols",
+    run() {
+      assert.equal(context.localMoleculeFromInput("acetic acid").canonicalSmiles, "CC(=O)O");
+
+      const [candidate] = productsFor("CC(=O)O", LiAlH4);
+      assert.equal(candidate.label, "Carboxylic acid reduction to alcohol");
+      assert.equal(candidate.productSmiles, "CCO");
+      assert.equal(candidate.annotations.mechanism, "carboxylic acid reduction to alcohol");
+      assert.equal(context.hasCarboxylicAcid(candidate.productSmiles), false);
+
+      const [borohydride] = productsFor("CC(=O)O", NaBH4);
+      assert.equal(borohydride.label, "No aldehyde or ketone carbonyl found");
+      assert.equal(borohydride.bucket, "none");
+    },
+  },
+  {
     name: "Friedel-Crafts acylation uses AlCl3 plus acid chloride co-reagent",
     run() {
       assert.equal(context.resolveKnownReagent("AlCl3").id, "friedel_crafts_acylation");
