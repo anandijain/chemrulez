@@ -103,6 +103,12 @@ export const reagentAliases = [
     aliases: ["h2so4", "p-tsoh", "ptsa", "acid catalyst", "cat acid"],
   },
   {
+    id: "acid_heat",
+    canonical: "H3O+, heat",
+    kind: "acidic hydrolysis conditions",
+    aliases: ["h3o+ heat", "acid heat", "acid and heat", "h2so4 heat", "aqueous acid heat", "acidic hydrolysis"],
+  },
+  {
     id: "ethylene_glycol_acetal_protection",
     canonical: "HOCH2CH2OH, H+",
     acceptedLabels: ["ethylene glycol, H+"],

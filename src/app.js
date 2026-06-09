@@ -1873,6 +1873,14 @@ function findReactionCandidatesRaw(molecule, resolution) {
     return esterLahReductionCandidates(molecule);
   }
 
+  if (reagentIds.has("lithium_aluminum_hydride") && hasCyanohydrin(substrateSmiles)) {
+    return cyanohydrinLahReductionCandidates(molecule);
+  }
+
+  if (reagentIds.has("acid_heat") && hasCyanohydrin(substrateSmiles)) {
+    return cyanohydrinHydrolysisCandidates(molecule);
+  }
+
   if (hydrideReagent) {
     return hasAldehydeOrKetone(substrateSmiles)
       ? carbonylReductionCandidates(molecule, hydrideReagent)
@@ -1896,6 +1904,10 @@ function findReactionCandidatesRaw(molecule, resolution) {
 
   if (baseStrength && hasVinylHalide(substrateSmiles)) {
     return vinylHalideDehydrohalogenationCandidates(molecule, baseStrength);
+  }
+
+  if (reagentIds.has("cyanide") && hasAldehydeOrKetone(substrateSmiles)) {
+    return cyanohydrinFormationCandidates(molecule);
   }
 
   if (substrateAlkylHalide && nucleophile) {
@@ -3802,6 +3814,14 @@ function hasEster(smiles) {
   }
 }
 
+function hasCyanohydrin(smiles) {
+  try {
+    return Boolean(findFirstCyanohydrin(chem.fromSmiles(smiles).graph));
+  } catch {
+    return false;
+  }
+}
+
 function hasCarboxylicAcid(smiles) {
   try {
     return Boolean(findFirstCarboxylicAcid(chem.fromSmiles(smiles).graph));
@@ -3917,6 +3937,107 @@ function esterLahReductionCandidates(molecule) {
 
 function isCarbonylHydrideReagent(reagentId) {
   return reagentId === "sodium_borohydride" || reagentId === "lithium_aluminum_hydride";
+}
+
+function cyanohydrinFormationCandidates(molecule) {
+  const smiles = reactionSmilesForMolecule(molecule);
+  const productSmiles = addCyanideToCarbonyl(smiles);
+  if (!productSmiles) {
+    return [
+      candidate({
+        id: "cyanohydrin_formation_no_product",
+        label: "No cyanohydrin product",
+        productName: molecule.displayName,
+        productSmiles: smiles,
+        bucket: "none",
+        confidence: 0.48,
+        annotations: {
+          stereochemistry: "unchanged",
+          selectivity: "none",
+          mechanism: "cyanohydrin formation",
+          warnings: ["The app recognized cyanide but could not serialize this carbonyl addition."],
+        },
+        explanation: [
+          "Cyanide adds to aldehydes and ketones, then protonation gives a cyanohydrin.",
+          "This substrate was outside the current cyanohydrin serializer.",
+        ],
+      }),
+    ];
+  }
+
+  return [
+    candidate({
+      id: "cyanohydrin_formation",
+      label: "Cyanohydrin",
+      productName: `${molecule.displayName} cyanohydrin`,
+      productSmiles,
+      bucket: "high",
+      confidence: 0.78,
+      annotations: {
+        stereochemistry: "racemic if new stereocenter forms",
+        selectivity: "carbonyl addition",
+        mechanism: "cyanohydrin formation",
+        warnings: ["Cyanohydrin stereochemistry and reversibility are not yet fully encoded."],
+      },
+      explanation: [
+        "Cyanide adds to the aldehyde or ketone carbonyl carbon.",
+        "Protonation of the alkoxide gives an alcohol, so the product has OH and CN on the same carbon.",
+        "The resulting nitrile can be reduced with LiAlH4 or hydrolyzed under acidic heat.",
+      ],
+    }),
+  ];
+}
+
+function cyanohydrinLahReductionCandidates(molecule) {
+  const smiles = reactionSmilesForMolecule(molecule);
+  const productSmiles = reduceCyanohydrinNitrileToAmine(smiles);
+  if (!productSmiles) return [];
+
+  return [
+    candidate({
+      id: "cyanohydrin_lah_reduction",
+      label: "Amino alcohol",
+      productName: `${molecule.displayName} LAH reduction product`,
+      productSmiles,
+      bucket: "high",
+      confidence: 0.78,
+      annotations: {
+        stereochemistry: "unchanged at carbinol center",
+        selectivity: "nitrile reduction",
+        mechanism: "cyanohydrin nitrile reduction",
+      },
+      explanation: [
+        "LiAlH4 reduces nitriles to primary amines after workup.",
+        "For a cyanohydrin, the C#N group becomes CH2NH2 while the alcohol remains.",
+      ],
+    }),
+  ];
+}
+
+function cyanohydrinHydrolysisCandidates(molecule) {
+  const smiles = reactionSmilesForMolecule(molecule);
+  const productSmiles = hydrolyzeCyanohydrinToHydroxyAcid(smiles);
+  if (!productSmiles) return [];
+
+  return [
+    candidate({
+      id: "cyanohydrin_acid_hydrolysis",
+      label: "Alpha-hydroxy carboxylic acid",
+      productName: `${molecule.displayName} hydrolysis product`,
+      productSmiles,
+      bucket: "high",
+      confidence: 0.76,
+      annotations: {
+        stereochemistry: "unchanged at carbinol center",
+        selectivity: "nitrile hydrolysis",
+        mechanism: "acidic nitrile hydrolysis",
+      },
+      explanation: [
+        "Aqueous acid and heat hydrolyze nitriles to carboxylic acids.",
+        "For a cyanohydrin, this converts the CN group into CO2H, giving an alpha-hydroxy acid.",
+      ],
+    }),
+  ];
 }
 
 function carbonylReductionCandidates(molecule, reagent = { canonical: "hydride reagent" }) {
@@ -4733,6 +4854,68 @@ function oxidizeFirstAldehydeToCarboxylicAcid(smiles) {
   }
 }
 
+function addCyanideToCarbonyl(smiles) {
+  try {
+    const parsed = chem.fromSmiles(smiles);
+    const carbonyl = findFirstAldehydeOrKetoneCarbonyl(parsed.graph);
+    if (!carbonyl) return null;
+    const product = cloneGraph(parsed.graph);
+    const carbonylBond = graphBondBetween(product, carbonyl.carbon, carbonyl.oxygen);
+    if (!carbonylBond) return null;
+    carbonylBond.order = 1;
+    product.atoms[carbonyl.oxygen].token = "O";
+    const nitrileCarbon = addGraphAtom(product, "C");
+    const nitrileNitrogen = addGraphAtom(product, "N");
+    addGraphBond(product.bonds, carbonyl.carbon, nitrileCarbon, 1);
+    addGraphBond(product.bonds, nitrileCarbon, nitrileNitrogen, 3);
+    product.root = bestRootForProduct(product, carbonyl.carbon);
+    product.hasRings = graphHasCycle(product.atoms, product.bonds);
+    product.hasDisconnectedComponents = hasMultipleConnectedComponents(product);
+    return smilesFromGraph(product);
+  } catch {
+    return null;
+  }
+}
+
+function reduceCyanohydrinNitrileToAmine(smiles) {
+  try {
+    const parsed = chem.fromSmiles(smiles);
+    const cyanohydrin = findFirstCyanohydrin(parsed.graph);
+    if (!cyanohydrin) return null;
+    const product = cloneGraph(parsed.graph);
+    const nitrileBond = graphBondBetween(product, cyanohydrin.nitrileCarbon, cyanohydrin.nitrileNitrogen);
+    if (!nitrileBond) return null;
+    nitrileBond.order = 1;
+    product.root = bestRootForProduct(product, cyanohydrin.carbinolCarbon);
+    product.hasRings = graphHasCycle(product.atoms, product.bonds);
+    product.hasDisconnectedComponents = hasMultipleConnectedComponents(product);
+    return smilesFromGraph(product);
+  } catch {
+    return null;
+  }
+}
+
+function hydrolyzeCyanohydrinToHydroxyAcid(smiles) {
+  try {
+    const parsed = chem.fromSmiles(smiles);
+    const cyanohydrin = findFirstCyanohydrin(parsed.graph);
+    if (!cyanohydrin) return null;
+    const product = cloneGraph(parsed.graph);
+    removeGraphBond(product, cyanohydrin.nitrileCarbon, cyanohydrin.nitrileNitrogen);
+    product.atoms[cyanohydrin.nitrileNitrogen].token = "*";
+    const carbonylOxygen = addGraphAtom(product, "O");
+    const hydroxylOxygen = addGraphAtom(product, "O");
+    addGraphBond(product.bonds, cyanohydrin.nitrileCarbon, carbonylOxygen, 2);
+    addGraphBond(product.bonds, cyanohydrin.nitrileCarbon, hydroxylOxygen, 1);
+    product.root = bestRootForProduct(product, cyanohydrin.carbinolCarbon);
+    product.hasRings = graphHasCycle(product.atoms, product.bonds);
+    product.hasDisconnectedComponents = hasMultipleConnectedComponents(product);
+    return smilesFromConnectedComponent(product, product.root, new Set([cyanohydrin.nitrileNitrogen]));
+  } catch {
+    return null;
+  }
+}
+
 function reduceFirstEsterToAldehydeFragments(smiles) {
   try {
     const parsed = chem.fromSmiles(smiles);
@@ -4892,6 +5075,41 @@ function findFirstAcyclicAcetalOrKetal(graph) {
     };
   }
   return null;
+}
+
+function findFirstCyanohydrin(graph) {
+  for (const atom of graph.atoms) {
+    if (atomElement(atom) !== "C") continue;
+    const hydroxyl = graphNeighbors(graph, atom.id)
+      .filter((neighbor) => neighbor.bond.order === 1)
+      .find((neighbor) => atomElement(graph.atoms[neighbor.atomIndex]) === "O"
+        && implicitHydrogenCount(graph, neighbor.atomIndex) >= 1);
+    if (!hydroxyl) continue;
+
+    const nitrile = graphNeighbors(graph, atom.id)
+      .filter((neighbor) => neighbor.bond.order === 1)
+      .map((neighbor) => ({
+        carbon: neighbor.atomIndex,
+        nitrogen: nitrileNitrogenNeighbor(graph, neighbor.atomIndex),
+      }))
+      .find((site) => site.nitrogen !== null);
+    if (!nitrile) continue;
+
+    return {
+      carbinolCarbon: atom.id,
+      hydroxylOxygen: hydroxyl.atomIndex,
+      nitrileCarbon: nitrile.carbon,
+      nitrileNitrogen: nitrile.nitrogen,
+    };
+  }
+  return null;
+}
+
+function nitrileNitrogenNeighbor(graph, carbonIndex) {
+  if (atomElement(graph.atoms[carbonIndex]) !== "C") return null;
+  const nitrogen = graphNeighbors(graph, carbonIndex)
+    .find((neighbor) => neighbor.bond.order === 3 && atomElement(graph.atoms[neighbor.atomIndex]) === "N");
+  return nitrogen?.atomIndex ?? null;
 }
 
 function ethyleneBridgeBetweenOxygens(graph, oxygenA, oxygenB, acetalCarbon) {

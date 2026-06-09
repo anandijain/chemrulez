@@ -124,6 +124,7 @@ const alkyneHydroboration = reagent("alkyne_hydroboration", "1. R2BH  2. H2O2, N
 const HBr = reagent("hbr", "HBr", "hydrohalogenation");
 const HBrPeroxides = reagent("hbr_peroxides", "HBr, ROOR", "radical anti-Markovnikov hydrohalogenation");
 const acidHydration = reagent("acid_hydration", "H3O+", "acid-catalyzed alkene hydration");
+const acidHeat = reagent("acid_heat", "H3O+, heat", "acidic hydrolysis conditions");
 const ethyleneGlycolProtection = reagent("ethylene_glycol_acetal_protection", "HOCH2CH2OH, H+", "carbonyl acetal protection");
 const hydroxide = reagent("hydroxide", "NaOH, H2O", "hydroxide nucleophile");
 hydroxide.nucleophile = { token: "O", label: "hydroxide" };
@@ -642,6 +643,40 @@ const tests = [
       const [nitrile] = productsFor("CCCBr", cyanide);
       assert.equal(nitrile.label, "SN2 substitution product");
       assert.equal(nitrile.productSmiles, "CCCC#N");
+    },
+  },
+  {
+    name: "cyanide adds to carbonyls to form cyanohydrins",
+    run() {
+      const [candidate] = productsFor("CC=O", cyanide);
+      assert.equal(candidate.label, "Cyanohydrin");
+      assert.equal(candidate.annotations.mechanism, "cyanohydrin formation");
+      assert.equal(context.hasAldehydeOrKetone(candidate.productSmiles), false);
+      assert.equal(context.hasCyanohydrin(candidate.productSmiles), true);
+      assert.match(candidate.productSmiles, /C#N/);
+      assert.match(candidate.productSmiles, /O/);
+    },
+  },
+  {
+    name: "cyanohydrins reduce or hydrolyze through the nitrile",
+    run() {
+      assert.equal(context.resolveKnownReagent("H3O+ heat").id, "acid_heat");
+      const [cyanohydrin] = productsFor("CC=O", cyanide);
+
+      const [amine] = productsFor(cyanohydrin.productSmiles, LiAlH4);
+      assert.equal(amine.label, "Amino alcohol");
+      assert.equal(amine.annotations.mechanism, "cyanohydrin nitrile reduction");
+      assert.equal(context.hasCyanohydrin(amine.productSmiles), false);
+      assert.doesNotMatch(amine.productSmiles, /#/);
+      assert.match(amine.productSmiles, /N/);
+      assert.match(amine.productSmiles, /O/);
+
+      const [acid] = productsFor(cyanohydrin.productSmiles, acidHeat);
+      assert.equal(acid.label, "Alpha-hydroxy carboxylic acid");
+      assert.equal(acid.annotations.mechanism, "acidic nitrile hydrolysis");
+      assert.equal(context.hasCyanohydrin(acid.productSmiles), false);
+      assert.equal(context.hasCarboxylicAcid(acid.productSmiles), true);
+      assert.match(acid.productSmiles, /O/);
     },
   },
   {
