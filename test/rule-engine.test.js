@@ -1299,6 +1299,7 @@ const tests = [
       const ethanol = await context.resolveReagentInput("2 EtOH H2SO4");
       assert.ok(ethanol.reagents.some((reagent) => reagent.id === "acid_catalyst"));
       assert.ok(ethanol.reagents.some((reagent) => reagent.kind === "alcohol acetal donor" && reagent.molecule.canonicalSmiles === "CCO"));
+      assert.equal(context.resolveKnownReagent("acid"), null);
 
       const [moderate] = context.findReactionCandidates(
         context.withChemMetadata(context.localMoleculeFromInput("cyclopentanone")),
@@ -1324,6 +1325,26 @@ const tests = [
       assert.equal(deprotected.label, "Carbonyl deprotection");
       assert.equal(context.hasAldehydeOrKetone(deprotected.productSmiles), true);
       assert.equal(deprotected.annotations.equilibrium, "reverse favored by aqueous acid");
+
+      const methanolAndAcid = await context.resolveReagentInput("methanol and acid");
+      assert.ok(methanolAndAcid.reagents.some((reagent) => reagent.id === "acid_catalyst"));
+      assert.ok(methanolAndAcid.reagents.some((reagent) => reagent.kind === "alcohol acetal donor" && reagent.molecule.canonicalSmiles === "CO"));
+
+      const [acetoneKetal] = context.findReactionCandidates(molecule("acetone", "CC(C)=O"), methanolAndAcid);
+      assert.equal(acetoneKetal.label, "Acyclic acetal/ketal");
+      assert.equal(acetoneKetal.productSmiles, "CC(OC)(OC)C");
+      assert.equal(acetoneKetal.annotations.equilibrium, "reversible; needs driving conditions");
+
+      const methanolAcid = await context.resolveReagentInput("methanol acid");
+      assert.ok(methanolAcid.reagents.some((reagent) => reagent.id === "acid_catalyst"));
+      assert.ok(methanolAcid.reagents.some((reagent) => reagent.kind === "alcohol acetal donor" && reagent.molecule.canonicalSmiles === "CO"));
+
+      const [formaldehydeAcetal] = context.findReactionCandidates(molecule("formaldehyde", "C=O"), methanolAcid);
+      assert.equal(formaldehydeAcetal.label, "Acyclic acetal/ketal");
+      assert.equal(formaldehydeAcetal.productSmiles, "C(OC)OC");
+
+      const unresolved = await context.resolveReagentInput("not a real reagent");
+      assert.doesNotThrow(() => context.findReactionCandidates(molecule("acetone", "CC(C)=O"), unresolved));
     },
   },
   {

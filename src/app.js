@@ -1469,6 +1469,16 @@ async function resolveReagentInput(input) {
     if (!reagents.some((reagent) => reagent.id === knownReagent.id)) reagents.push(knownReagent);
   }
 
+  const genericAcid = genericAcidCatalystReagent();
+  if (
+    genericAcid
+    && hasGenericAcidCatalystCue(clean)
+    && !localMoleculeFromInput(clean)
+    && !reagents.some((reagent) => reagent.id === genericAcid.id)
+  ) {
+    reagents.push(genericAcid);
+  }
+
   for (const structuralText of extractStructuralReagentTexts(clean)) {
     const structuralReagent = await resolveStructuralReagent(structuralText);
     if (structuralReagent) reagents.push(structuralReagent);
@@ -1541,6 +1551,7 @@ function resolveKnownReagents(input) {
     })
     .sort((a, b) => normalized.indexOf(a.alias) - normalized.indexOf(b.alias));
   if (exact.length) return exact.map((match) => match.reagent);
+  if (normalized.length < 5) return [];
 
   const best = reagentAliases
     .map((reagent) => ({
@@ -1575,6 +1586,32 @@ function reagentFact(reagent, factName) {
   return reagent[factName] ?? null;
 }
 
+function genericAcidCatalystReagent() {
+  return reagentAliases.find((reagent) => reagent.id === "acid_catalyst") || null;
+}
+
+function hasGenericAcidCatalystCue(input) {
+  const parts = input
+    .split(/\b(?:then|followed by|and then|and|plus|with)\b|[,;+]|\d+\./i)
+    .map((part) => normalizeStructuralReagentText(part))
+    .filter(Boolean);
+  if (parts.some((part) => isGenericAcidCatalystText(part))) return true;
+
+  const withoutGenericAcid = normalizeStructuralReagentText(removeGenericAcidCatalystWords(input));
+  return Boolean(withoutGenericAcid && localMoleculeFromInput(withoutGenericAcid));
+}
+
+function isGenericAcidCatalystText(input) {
+  return /^(acid|h\+|h plus|acid catalyst|cat acid)$/i.test(input.trim());
+}
+
+function removeGenericAcidCatalystWords(input) {
+  return input
+    .replace(/(^|[\s,;+])(?:acid|h\+|cat\.?\s*acid)($|[\s,;+])/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function reagentIsCarbonylPartner(reagent) {
   const smiles = reagent?.molecule?.canonicalSmiles;
   return Boolean(smiles && (hasCarbonyl(smiles) || isCarbonDioxide(smiles)));
@@ -1587,14 +1624,24 @@ function reagentIsCarboxylicAcidPartner(reagent) {
 
 function extractStructuralReagentTexts(input) {
   const parts = input
-    .split(/\b(?:then|followed by|and then|plus|with)\b|[,;+]|\d+\./i)
+    .split(/\b(?:then|followed by|and then|and|plus|with)\b|[,;+]|\d+\./i)
     .map((part) => normalizeStructuralReagentText(removeKnownReagentWords(part)))
     .filter(Boolean);
 
-  const structural = parts.filter((part) => localMoleculeFromInput(part) || !resolveKnownReagent(part));
+  const structural = parts
+    .filter((part) => !isGenericAcidCatalystText(part))
+    .map((part) => {
+      if (localMoleculeFromInput(part)) return part;
+      const withoutGenericAcid = normalizeStructuralReagentText(removeGenericAcidCatalystWords(part));
+      return withoutGenericAcid && localMoleculeFromInput(withoutGenericAcid) ? withoutGenericAcid : part;
+    })
+    .filter((part) => localMoleculeFromInput(part) || !resolveKnownReagent(part));
   if (structural.length) return structural;
 
   const stripped = normalizeStructuralReagentText(removeKnownReagentWords(input));
+  if (isGenericAcidCatalystText(stripped)) return [];
+  const withoutGenericAcid = normalizeStructuralReagentText(removeGenericAcidCatalystWords(stripped));
+  if (withoutGenericAcid && localMoleculeFromInput(withoutGenericAcid)) return [withoutGenericAcid];
   return stripped === input.trim() && stripped ? [stripped] : [];
 }
 
@@ -1607,7 +1654,7 @@ function removeKnownReagentWords(input) {
     return reagent.aliases.reduce((current, alias) => {
       return current.replace(new RegExp(escapeRegExp(alias), "gi"), " ");
     }, text);
-  }, input).replace(/\b(?:then|followed by|and then|plus|with)\b/gi, " ");
+  }, input).replace(/\b(?:then|followed by|and then|and|plus|with)\b/gi, " ");
 }
 
 function normalizeStructuralReagentText(input) {
@@ -1736,7 +1783,7 @@ function findReactionCandidates(molecule, resolution) {
 }
 
 function findReactionCandidatesRaw(molecule, resolution) {
-  const reagents = resolution.reagents || [resolution.reagent];
+  const reagents = (resolution?.reagents || [resolution?.reagent]).filter(Boolean);
   const substrateSmiles = reactionSmilesForMolecule(molecule);
   const sodiumAmide = reagents.find((reagent) => reagent.id === "sodium_amide");
   const alkylHalide = reagents.find((reagent) => reagent.kind.includes("alkyl halide"));
@@ -1965,7 +2012,7 @@ function findReactionCandidatesRaw(molecule, resolution) {
     }));
   }
 
-  if (resolution.reagent.id === "sodium_amide" && isLikelyTerminalAlkyne(substrateSmiles)) {
+  if (reagentIds.has("sodium_amide") && isLikelyTerminalAlkyne(substrateSmiles)) {
     return [
       candidate({
         id: "terminal_alkyne_acetylide",
@@ -4337,7 +4384,7 @@ function alcoholAcetalProtectionCandidates(molecule, alcohol, resolution) {
         equilibrium: drivenForward ? "forward favored" : "reversible; needs driving conditions",
         warnings: drivenForward
           ? ["Forward acetal/ketal formation is modeled because excess alcohol or water removal was specified."]
-          : ["Acetal/ketal formation is reversible; ordinary aqueous acid favors hydrolysis. Use excess EtOH or remove water to drive formation."],
+          : ["Acetal/ketal formation is reversible; ordinary aqueous acid favors hydrolysis. Use excess alcohol or remove water to drive formation."],
       },
       explanation: [
         cyclic
