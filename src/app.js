@@ -167,6 +167,27 @@ const localMolecules = [
     molecularWeight: "60.05",
   },
   {
+    keys: ["sodiumacetate", "sodium acetate", "acetate"],
+    displayName: "Sodium acetate",
+    canonicalSmiles: "CC(=O)[O-]",
+    formula: "C2H3NaO2",
+    molecularWeight: "82.03",
+  },
+  {
+    keys: ["acetamide", "ethanamide"],
+    displayName: "Acetamide",
+    canonicalSmiles: "CC(=O)N",
+    formula: "C2H5NO",
+    molecularWeight: "59.07",
+  },
+  {
+    keys: ["aceticanhydride", "acetic anhydride", "ethanoic anhydride"],
+    displayName: "Acetic anhydride",
+    canonicalSmiles: "CC(=O)OC(C)=O",
+    formula: "C4H6O3",
+    molecularWeight: "102.09",
+  },
+  {
     keys: ["acetaldehyde", "ethanal"],
     displayName: "Acetaldehyde",
     canonicalSmiles: "CC=O",
@@ -242,6 +263,13 @@ const localMolecules = [
     canonicalSmiles: "CO",
     formula: "CH4O",
     molecularWeight: "32.04",
+  },
+  {
+    keys: ["ammonia", "nh3"],
+    displayName: "Ammonia",
+    canonicalSmiles: "N",
+    formula: "NH3",
+    molecularWeight: "17.03",
   },
   {
     keys: ["ethanol", "etoh", "ethylalcohol", "ethyl alcohol"],
@@ -1466,6 +1494,7 @@ async function resolveReagentInput(input) {
 
   const reagents = [];
   for (const knownReagent of resolveKnownReagents(clean)) {
+    if (knownReagent.id === "water" && hasWaterRemovalCue(clean)) continue;
     if (!reagents.some((reagent) => reagent.id === knownReagent.id)) reagents.push(knownReagent);
   }
 
@@ -1612,6 +1641,10 @@ function removeGenericAcidCatalystWords(input) {
     .trim();
 }
 
+function hasWaterRemovalCue(input) {
+  return /\b(remove\s+water|water\s+removal|dean-?stark|molecular\s+sieves|dry)\b/i.test(input);
+}
+
 function reagentIsCarbonylPartner(reagent) {
   const smiles = reagent?.molecule?.canonicalSmiles;
   return Boolean(smiles && (hasCarbonyl(smiles) || isCarbonDioxide(smiles)));
@@ -1620,6 +1653,32 @@ function reagentIsCarbonylPartner(reagent) {
 function reagentIsCarboxylicAcidPartner(reagent) {
   const smiles = reagent?.molecule?.canonicalSmiles;
   return Boolean(smiles && hasCarboxylicAcid(smiles));
+}
+
+function reagentIsCarboxylatePartner(reagent) {
+  return reagent?.kind === "carboxylate acyl donor"
+    || Boolean(reagent?.molecule?.canonicalSmiles && hasCarboxylate(reagent.molecule.canonicalSmiles));
+}
+
+function reagentIsAcylSubstitutionAmine(reagent) {
+  return reagent?.kind === "ammonia amide donor"
+    || reagent?.kind === "primary amine imine donor"
+    || reagent?.kind === "secondary amine enamine donor";
+}
+
+function amineNucleophileSmiles(amine) {
+  return amine?.amineSmiles || (amine?.amineClass === "ammonia" ? "N" : null);
+}
+
+function hasHydrolysisCondition(reagentIds) {
+  return reagentIds.has("water")
+    || reagentIds.has("acid_hydration")
+    || reagentIds.has("acid_heat")
+    || reagentIds.has("hydroxide");
+}
+
+function hasAcidicOrBasicDerivativeHydrolysis(reagentIds) {
+  return reagentIds.has("acid_heat") || reagentIds.has("hydroxide") || reagentIds.has("acid_hydration");
 }
 
 function extractStructuralReagentTexts(input) {
@@ -1651,6 +1710,7 @@ function extractStructuralReagentText(input) {
 
 function removeKnownReagentWords(input) {
   return reagentAliases.reduce((text, reagent) => {
+    if (reagent.id === "water" && hasWaterRemovalCue(input)) return text;
     return reagent.aliases.reduce((current, alias) => {
       return current.replace(new RegExp(escapeRegExp(alias), "gi"), " ");
     }, text);
@@ -1670,8 +1730,12 @@ async function resolveStructuralReagent(input) {
     const molecule = await fetchMoleculeLenient(input);
     const grignard = classifyGrignard(molecule, input);
     if (grignard) return grignard;
+    const organocuprate = classifyOrganocuprate(molecule, input);
+    if (organocuprate) return organocuprate;
     const acidChloride = classifyAcidChloride(molecule, input);
     if (acidChloride) return acidChloride;
+    const carboxylate = classifyCarboxylateDonor(molecule, input);
+    if (carboxylate) return carboxylate;
     const amine = classifyAmine(molecule, input);
     if (amine) return amine;
     const alcohol = classifyAlcoholDonor(molecule, input);
@@ -1788,10 +1852,13 @@ function findReactionCandidatesRaw(molecule, resolution) {
   const sodiumAmide = reagents.find((reagent) => reagent.id === "sodium_amide");
   const alkylHalide = reagents.find((reagent) => reagent.kind.includes("alkyl halide"));
   const grignard = reagents.find((reagent) => reagent.kind.includes("Grignard"));
+  const organocuprate = reagents.find((reagent) => reagent.kind === "organocuprate acyl substitution");
   const acidChloride = reagents.find((reagent) => reagent.kind === "acid chloride acyl donor");
   const structuralAmine = reagents.find((reagent) => reagent.kind === "primary amine imine donor" || reagent.kind === "secondary amine enamine donor");
+  const acylSubstitutionAmine = reagents.find((reagent) => reagentIsAcylSubstitutionAmine(reagent));
   const structuralCarbonyl = reagents.find((reagent) => reagentIsCarbonylPartner(reagent));
   const structuralCarboxylicAcid = reagents.find((reagent) => reagentIsCarboxylicAcidPartner(reagent));
+  const structuralCarboxylate = reagents.find((reagent) => reagentIsCarboxylatePartner(reagent));
   const structuralAlcohol = reagents.find((reagent) => reagent.kind === "alcohol acetal donor" || reagent.kind === "diol acetal donor");
   const nucleophile = reagents.find((reagent) => reagentHasRole(reagent, "nucleophile"));
   const reagentIds = new Set(reagents.map((reagent) => reagent.id));
@@ -1799,6 +1866,76 @@ function findReactionCandidatesRaw(molecule, resolution) {
   const baseStrength = baseStrengthForReagents(reagents);
   const substrateAlkylHalide = classifyAlkylHalide(molecule, molecule.displayName || molecule.canonicalSmiles);
   const substrateGrignard = classifyGrignard(molecule, molecule.displayName || molecule.canonicalSmiles);
+  const substrateAcidChloride = classifyAcidChloride(molecule, molecule.displayName || molecule.canonicalSmiles);
+  const carboxylateOrAcidDonor = structuralCarboxylate || structuralCarboxylicAcid;
+
+  if (reagentIds.has("socl2") && hasCarboxylicAcid(substrateSmiles)) {
+    return carboxylicAcidToAcidChlorideCandidates(molecule);
+  }
+
+  if (structuralAlcohol && hasCarboxylicAcid(substrateSmiles) && hasAcetalFormationAcid(reagentIds)) {
+    return carboxylicAcidFischerEsterificationCandidates(molecule, structuralAlcohol, resolution);
+  }
+
+  if (reagentIds.has("dcc") && acylSubstitutionAmine && hasCarboxylicAcid(substrateSmiles)) {
+    return carboxylicAcidDccAmideCandidates(molecule, acylSubstitutionAmine);
+  }
+
+  if (alkylHalide && hasCarboxylate(substrateSmiles)) {
+    return carboxylateAlkylationCandidates(molecule, alkylHalide);
+  }
+
+  if (substrateAcidChloride && hasHydrolysisCondition(reagentIds)) {
+    return acidChlorideHydrolysisCandidates(molecule);
+  }
+
+  if (substrateAcidChloride && carboxylateOrAcidDonor) {
+    return acidChlorideAnhydrideCandidates(molecule, carboxylateOrAcidDonor);
+  }
+
+  if (substrateAcidChloride && structuralAlcohol) {
+    return acidChlorideAlcoholysisCandidates(molecule, structuralAlcohol, reagentIds);
+  }
+
+  if (substrateAcidChloride && acylSubstitutionAmine) {
+    return acidChlorideAminolysisCandidates(molecule, acylSubstitutionAmine);
+  }
+
+  if (substrateAcidChloride && reagentIds.has("lithium_aluminum_hydride")) {
+    return acidChlorideLahReductionCandidates(molecule);
+  }
+
+  if (substrateAcidChloride && grignard) {
+    return acidChlorideGrignardCandidates(molecule, grignard);
+  }
+
+  if (substrateAcidChloride && organocuprate) {
+    return acidChlorideOrganocuprateCandidates(molecule, organocuprate);
+  }
+
+  if (hasAcidAnhydride(substrateSmiles) && hasHydrolysisCondition(reagentIds)) {
+    return anhydrideHydrolysisCandidates(molecule);
+  }
+
+  if (hasAcidAnhydride(substrateSmiles) && structuralAlcohol) {
+    return anhydrideAlcoholysisCandidates(molecule, structuralAlcohol);
+  }
+
+  if (hasAcidAnhydride(substrateSmiles) && acylSubstitutionAmine) {
+    return anhydrideAminolysisCandidates(molecule, acylSubstitutionAmine);
+  }
+
+  if (hasEster(substrateSmiles) && hasAcidicOrBasicDerivativeHydrolysis(reagentIds)) {
+    return esterHydrolysisCandidates(molecule, reagentIds);
+  }
+
+  if (hasAmide(substrateSmiles) && reagentIds.has("lithium_aluminum_hydride")) {
+    return amideLahReductionCandidates(molecule);
+  }
+
+  if (hasAmide(substrateSmiles) && hasAcidicOrBasicDerivativeHydrolysis(reagentIds)) {
+    return amideHydrolysisCandidates(molecule, reagentIds);
+  }
 
   if (reagentIds.has("acid_hydration") && hasAcetalOrKetal(substrateSmiles)) {
     return acetalDeprotectionCandidates(molecule);
@@ -2684,6 +2821,26 @@ function classifyAcidChloride(molecule, input) {
   };
 }
 
+function classifyCarboxylateDonor(molecule, input) {
+  let parsed;
+  try {
+    parsed = chem.fromSmiles(reactionSmilesForMolecule(molecule));
+  } catch {
+    return null;
+  }
+
+  const carboxylate = findFirstCarboxylate(parsed.graph);
+  if (!carboxylate) return null;
+
+  return {
+    id: `carboxylate_${molecule.cid || normalizeText(input)}`,
+    canonical: molecule.displayName || input,
+    kind: "carboxylate acyl donor",
+    molecule,
+    acyloxySmiles: carboxylateAcyloxySmiles(parsed.graph, carboxylate),
+  };
+}
+
 function findFirstAcidChloride(graph) {
   for (const carbonyl of carbonylsInGraph(graph)) {
     const chloride = graphNeighbors(graph, carbonyl.carbon)
@@ -2707,6 +2864,32 @@ function acidChlorideAcylSmiles(graph, acidChloride) {
   return smilesFromConnectedComponent(product, acidChloride.carbonylCarbon, new Set([acidChloride.chloride]));
 }
 
+function carboxylicAcidAcyloxySmiles(molecule) {
+  let parsed;
+  try {
+    parsed = chem.fromSmiles(reactionSmilesForMolecule(molecule));
+  } catch {
+    return null;
+  }
+
+  const acid = findFirstCarboxylicAcid(parsed.graph);
+  if (acid) return acyloxySmilesFromGraph(parsed.graph, acid.hydroxylOxygen);
+  const carboxylate = findFirstCarboxylate(parsed.graph);
+  if (carboxylate) return carboxylateAcyloxySmiles(parsed.graph, carboxylate);
+  return null;
+}
+
+function carboxylateAcyloxySmiles(graph, carboxylate) {
+  return acyloxySmilesFromGraph(graph, carboxylate.anionOxygen);
+}
+
+function acyloxySmilesFromGraph(graph, oxygenIndex) {
+  const product = cloneGraph(graph);
+  product.atoms[oxygenIndex].token = "O";
+  product.root = oxygenIndex;
+  return smilesFromConnectedComponent(product, oxygenIndex, new Set());
+}
+
 function classifyAmine(molecule, input) {
   let parsed;
   try {
@@ -2716,15 +2899,20 @@ function classifyAmine(molecule, input) {
   }
 
   const amine = findFirstAmine(parsed.graph);
-  if (!amine || amine.carbonNeighbors < 1 || amine.carbonNeighbors > 2) return null;
+  if (!amine || amine.carbonNeighbors > 2) return null;
 
   return {
     id: `amine_${molecule.cid || normalizeText(input)}`,
     canonical: molecule.displayName || input,
-    kind: amine.carbonNeighbors === 1 ? "primary amine imine donor" : "secondary amine enamine donor",
+    kind: amine.carbonNeighbors === 0
+      ? "ammonia amide donor"
+      : (amine.carbonNeighbors === 1 ? "primary amine imine donor" : "secondary amine enamine donor"),
     molecule,
-    amineClass: amine.carbonNeighbors === 1 ? "primary" : "secondary",
+    amineClass: amine.carbonNeighbors === 0
+      ? "ammonia"
+      : (amine.carbonNeighbors === 1 ? "primary" : "secondary"),
     nSubstituents: amine.fragments,
+    amineSmiles: amine.amineSmiles,
   };
 }
 
@@ -2734,14 +2922,30 @@ function findFirstAmine(graph) {
     const carbonNeighbors = graphNeighbors(graph, atom.id)
       .filter((neighbor) => neighbor.bond.order === 1)
       .filter((neighbor) => atomElement(graph.atoms[neighbor.atomIndex]) === "C");
-    if (!carbonNeighbors.length || carbonNeighbors.length > 2) continue;
+    if (carbonNeighbors.length > 2) continue;
     return {
       nitrogen: atom.id,
       carbonNeighbors: carbonNeighbors.length,
       fragments: carbonNeighbors.map((neighbor) => smilesFromConnectedComponent(graph, neighbor.atomIndex, new Set([atom.id]))),
+      amineSmiles: smilesFromConnectedComponent(graph, atom.id, new Set()),
     };
   }
   return null;
+}
+
+function classifyOrganocuprate(molecule, input) {
+  const normalized = normalizeText(input);
+  const organoSmiles = reagentAliases
+    .find((reagent) => reagent.kind === "organocuprate acyl substitution" && reagent.aliases.some((alias) => normalizeText(alias) === normalized))
+    ?.organoSmiles;
+  if (!organoSmiles) return null;
+  return {
+    id: `organocuprate_${molecule.cid || normalized}`,
+    canonical: molecule.displayName || input,
+    kind: "organocuprate acyl substitution",
+    organoSmiles,
+    molecule,
+  };
 }
 
 function classifyAlcoholDonor(molecule, input) {
@@ -3871,6 +4075,38 @@ function hasEster(smiles) {
   }
 }
 
+function hasAcidChloride(smiles) {
+  try {
+    return Boolean(findFirstAcidChloride(chem.fromSmiles(smiles).graph));
+  } catch {
+    return false;
+  }
+}
+
+function hasAcidAnhydride(smiles) {
+  try {
+    return Boolean(findFirstAcidAnhydride(chem.fromSmiles(smiles).graph));
+  } catch {
+    return false;
+  }
+}
+
+function hasAmide(smiles) {
+  try {
+    return Boolean(findFirstAmide(chem.fromSmiles(smiles).graph));
+  } catch {
+    return false;
+  }
+}
+
+function hasCarboxylate(smiles) {
+  try {
+    return Boolean(findFirstCarboxylate(chem.fromSmiles(smiles).graph));
+  } catch {
+    return false;
+  }
+}
+
 function hasCyanohydrin(smiles) {
   try {
     return Boolean(findFirstCyanohydrin(chem.fromSmiles(smiles).graph));
@@ -3885,6 +4121,423 @@ function hasCarboxylicAcid(smiles) {
   } catch {
     return false;
   }
+}
+
+function carboxylicAcidToAcidChlorideCandidates(molecule) {
+  const smiles = reactionSmilesForMolecule(molecule);
+  const productSmiles = convertFirstCarboxylicAcidToAcidChloride(smiles);
+  return [
+    candidate({
+      id: "carboxylic_acid_to_acid_chloride",
+      label: "Acid chloride",
+      productName: `${molecule.displayName} acid chloride`,
+      productSmiles: productSmiles || smiles,
+      bucket: productSmiles ? "high" : "none",
+      confidence: productSmiles ? 0.84 : 0.36,
+      annotations: {
+        stereochemistry: "unchanged",
+        selectivity: "carboxylic acid activation",
+        mechanism: "acid chloride formation",
+        warnings: productSmiles ? [] : ["The app found acid chloride conditions but could not serialize the acid chloride."],
+      },
+      explanation: [
+        "SOCl2 converts carboxylic acids to acid chlorides.",
+        "This is a common activation step before alcoholysis, aminolysis, Friedel-Crafts acylation, or organocuprate addition.",
+      ],
+    }),
+  ];
+}
+
+function carboxylicAcidFischerEsterificationCandidates(molecule, alcohol, resolution) {
+  const smiles = reactionSmilesForMolecule(molecule);
+  const productSmiles = replaceFirstCarboxylicAcidHydroxylWithFragment(smiles, alcohol.alkoxySmiles);
+  const drivenForward = acetalFormationDrivenForward(resolution);
+  return [
+    candidate({
+      id: "fischer_esterification",
+      label: "Fischer esterification",
+      productName: `${molecule.displayName} ester`,
+      productSmiles: productSmiles || smiles,
+      bucket: productSmiles ? (drivenForward ? "high" : "moderate") : "none",
+      confidence: productSmiles ? (drivenForward ? 0.8 : 0.62) : 0.34,
+      annotations: {
+        stereochemistry: "unchanged",
+        selectivity: drivenForward ? "forward driven by conditions" : "equilibrium mixture",
+        mechanism: "acid-catalyzed esterification",
+        equilibrium: drivenForward ? "forward favored" : "reversible; remove water or use excess alcohol",
+        warnings: drivenForward ? [] : ["Fischer esterification is reversible; use excess alcohol or remove water to drive ester formation."],
+      },
+      explanation: [
+        "Carboxylic acids and alcohols form esters under acid catalysis.",
+        "This is an equilibrium reaction, so conditions matter.",
+      ],
+    }),
+  ];
+}
+
+function carboxylicAcidDccAmideCandidates(molecule, amine) {
+  const smiles = reactionSmilesForMolecule(molecule);
+  const productSmiles = replaceFirstCarboxylicAcidHydroxylWithFragment(smiles, amineNucleophileSmiles(amine));
+  return [
+    candidate({
+      id: "dcc_amide_coupling",
+      label: "Amide",
+      productName: `${molecule.displayName} amide`,
+      productSmiles: productSmiles || smiles,
+      bucket: productSmiles ? "high" : "none",
+      confidence: productSmiles ? 0.78 : 0.36,
+      annotations: {
+        stereochemistry: "unchanged",
+        selectivity: "amide coupling",
+        mechanism: "DCC carboxylic acid amide coupling",
+        warnings: productSmiles ? [] : ["DCC/amine was recognized, but the amide product could not be serialized."],
+      },
+      explanation: [
+        "DCC activates the carboxylic acid toward attack by an amine.",
+        "The product is the corresponding amide.",
+      ],
+    }),
+  ];
+}
+
+function carboxylateAlkylationCandidates(molecule, alkylHalide) {
+  const smiles = reactionSmilesForMolecule(molecule);
+  const productSmiles = alkylateFirstCarboxylate(smiles, alkylHalide.alkylSmiles);
+  const blocked = !alkylHalide.alkylSmiles;
+  return [
+    candidate({
+      id: "carboxylate_sn2_esterification",
+      label: blocked ? "Poor carboxylate SN2 esterification" : "SN2 esterification",
+      productName: `${molecule.displayName} ester`,
+      productSmiles: productSmiles || smiles,
+      bucket: productSmiles && !blocked ? "high" : "none",
+      confidence: productSmiles && !blocked ? 0.76 : 0.34,
+      annotations: {
+        stereochemistry: "inversion at alkyl halide center if chiral",
+        selectivity: blocked ? "blocked" : "SN2",
+        mechanism: "carboxylate SN2 alkylation",
+        warnings: blocked ? ["Carboxylate esterification by SN2 needs a methyl, primary, allylic, or benzylic alkyl halide."] : [],
+      },
+      explanation: [
+        "Carboxylates can alkylate methyl and primary alkyl halides by SN2 to form esters.",
+        `${alkylHalide.canonical} supplies the alkyl group.`,
+      ],
+    }),
+  ];
+}
+
+function acidChlorideHydrolysisCandidates(molecule) {
+  const smiles = reactionSmilesForMolecule(molecule);
+  const productSmiles = hydrolyzeFirstAcidChloride(smiles);
+  return [
+    candidate({
+      id: "acid_chloride_hydrolysis",
+      label: "Carboxylic acid",
+      productName: `${molecule.displayName} hydrolysis product`,
+      productSmiles: productSmiles || smiles,
+      bucket: productSmiles ? "high" : "none",
+      confidence: productSmiles ? 0.84 : 0.34,
+      annotations: {
+        stereochemistry: "unchanged",
+        selectivity: "acyl substitution",
+        mechanism: "acid chloride hydrolysis",
+      },
+      explanation: [
+        "Acid chlorides hydrolyze readily with water to give carboxylic acids.",
+      ],
+    }),
+  ];
+}
+
+function acidChlorideAnhydrideCandidates(molecule, carboxylateOrAcid) {
+  const smiles = reactionSmilesForMolecule(molecule);
+  const acyloxySmiles = carboxylateOrAcid.acyloxySmiles || carboxylicAcidAcyloxySmiles(carboxylateOrAcid.molecule);
+  const productSmiles = replaceFirstAcidChlorideWithFragment(smiles, acyloxySmiles);
+  return [
+    candidate({
+      id: "acid_chloride_to_anhydride",
+      label: "Acid anhydride",
+      productName: `${molecule.displayName} anhydride`,
+      productSmiles: productSmiles || smiles,
+      bucket: productSmiles ? "high" : "none",
+      confidence: productSmiles ? 0.76 : 0.34,
+      annotations: {
+        stereochemistry: "unchanged",
+        selectivity: "acyl substitution",
+        mechanism: "acid chloride carboxylate acyl substitution",
+        warnings: carboxylateOrAcid.kind === "carboxylate acyl donor" ? [] : ["Usually this is drawn with a carboxylate salt; neutral acid is treated as the corresponding carboxylate donor here."],
+      },
+      explanation: [
+        "Carboxylates attack acid chlorides to form acid anhydrides.",
+        "Chloride is the leaving group.",
+      ],
+    }),
+  ];
+}
+
+function acidChlorideAlcoholysisCandidates(molecule, alcohol, reagentIds) {
+  const smiles = reactionSmilesForMolecule(molecule);
+  const productSmiles = replaceFirstAcidChlorideWithFragment(smiles, alcohol.alkoxySmiles);
+  return [
+    candidate({
+      id: "acid_chloride_alcoholysis",
+      label: "Ester",
+      productName: `${molecule.displayName} ester`,
+      productSmiles: productSmiles || smiles,
+      bucket: productSmiles ? "high" : "none",
+      confidence: productSmiles ? 0.82 : 0.34,
+      annotations: {
+        stereochemistry: "unchanged",
+        selectivity: "acyl substitution",
+        mechanism: "acid chloride alcoholysis",
+        warnings: reagentIds.has("pyridine_base") ? [] : ["Pyridine or another base is commonly included to trap HCl."],
+      },
+      explanation: [
+        "Alcohols attack acid chlorides to form esters.",
+        "Pyridine is commonly written on the arrow to neutralize HCl.",
+      ],
+    }),
+  ];
+}
+
+function acidChlorideAminolysisCandidates(molecule, amine) {
+  const smiles = reactionSmilesForMolecule(molecule);
+  const productSmiles = replaceFirstAcidChlorideWithFragment(smiles, amineNucleophileSmiles(amine));
+  return [
+    candidate({
+      id: "acid_chloride_aminolysis",
+      label: "Amide",
+      productName: `${molecule.displayName} amide`,
+      productSmiles: productSmiles || smiles,
+      bucket: productSmiles ? "high" : "none",
+      confidence: productSmiles ? 0.84 : 0.34,
+      annotations: {
+        stereochemistry: "unchanged",
+        selectivity: "acyl substitution",
+        mechanism: "acid chloride aminolysis",
+      },
+      explanation: [
+        "Ammonia and primary or secondary amines attack acid chlorides to form amides.",
+        "A second equivalent of amine is often used to neutralize HCl.",
+      ],
+    }),
+  ];
+}
+
+function acidChlorideLahReductionCandidates(molecule) {
+  const smiles = reactionSmilesForMolecule(molecule);
+  const productSmiles = reduceFirstAcidChlorideToAlcohol(smiles);
+  return [
+    candidate({
+      id: "lah_acid_chloride_to_alcohol",
+      label: "Primary alcohol",
+      productName: `${molecule.displayName} LAH alcohol`,
+      productSmiles: productSmiles || smiles,
+      bucket: productSmiles ? "high" : "none",
+      confidence: productSmiles ? 0.82 : 0.34,
+      annotations: {
+        stereochemistry: "unchanged at nonreacting centers",
+        selectivity: "strong hydride reduction",
+        mechanism: "acid chloride reduction to alcohol",
+      },
+      explanation: [
+        "LiAlH4 reduces acid chlorides all the way to primary alcohols after acid workup.",
+      ],
+    }),
+  ];
+}
+
+function acidChlorideGrignardCandidates(molecule, grignardReagent) {
+  const smiles = reactionSmilesForMolecule(molecule);
+  const productSmiles = addGrignardTwiceToAcidChloride(smiles, grignardReagent.organoSmiles);
+  return [
+    candidate({
+      id: "grignard_acid_chloride_double_addition",
+      label: "Tertiary alcohol after acid chloride double addition",
+      productName: `${molecule.displayName} Grignard alcohol`,
+      productSmiles: productSmiles || smiles,
+      bucket: productSmiles ? "high" : "none",
+      confidence: productSmiles ? 0.76 : 0.34,
+      annotations: {
+        stereochemistry: "racemic if new stereocenter forms",
+        selectivity: "two additions to acid chloride",
+        mechanism: "Grignard acid chloride double addition",
+        warnings: ["Ordinary Grignards usually add twice to acid chlorides; organocuprates are the ketone-stopping reagent."],
+      },
+      explanation: [
+        "The first Grignard addition to an acid chloride gives a ketone after chloride loss.",
+        "The ketone reacts again with Grignard reagent; acid workup gives a tertiary alcohol.",
+      ],
+    }),
+  ];
+}
+
+function acidChlorideOrganocuprateCandidates(molecule, organocuprateReagent) {
+  const smiles = reactionSmilesForMolecule(molecule);
+  const productSmiles = addOrganocuprateToAcidChloride(smiles, organocuprateReagent.organoSmiles);
+  return [
+    candidate({
+      id: "organocuprate_acid_chloride_to_ketone",
+      label: "Ketone",
+      productName: `${molecule.displayName} ketone`,
+      productSmiles: productSmiles || smiles,
+      bucket: productSmiles ? "high" : "none",
+      confidence: productSmiles ? 0.78 : 0.34,
+      annotations: {
+        stereochemistry: "unchanged",
+        selectivity: "stops at ketone",
+        mechanism: "organocuprate acyl substitution",
+      },
+      explanation: [
+        "Diorganocuprates react with acid chlorides to give ketones.",
+        "They are less reactive than Grignards, so the ketone product is not normally attacked again.",
+      ],
+    }),
+  ];
+}
+
+function anhydrideHydrolysisCandidates(molecule) {
+  const smiles = reactionSmilesForMolecule(molecule);
+  const productSmiles = hydrolyzeFirstAnhydrideToAcids(smiles);
+  return [
+    candidate({
+      id: "anhydride_hydrolysis",
+      label: "Carboxylic acid fragments",
+      productName: `${molecule.displayName} hydrolysis products`,
+      productSmiles: productSmiles || smiles,
+      bucket: productSmiles ? "high" : "none",
+      confidence: productSmiles ? 0.82 : 0.34,
+      annotations: {
+        stereochemistry: "unchanged",
+        selectivity: "acyl substitution",
+        mechanism: "anhydride hydrolysis",
+      },
+      explanation: [
+        "Acid anhydrides hydrolyze to carboxylic acids.",
+      ],
+    }),
+  ];
+}
+
+function anhydrideAlcoholysisCandidates(molecule, alcohol) {
+  const smiles = reactionSmilesForMolecule(molecule);
+  const productSmiles = alcoholyzeFirstAnhydride(smiles, alcohol.alkoxySmiles);
+  return [
+    candidate({
+      id: "anhydride_alcoholysis",
+      label: "Ester plus carboxylic acid",
+      productName: `${molecule.displayName} alcoholysis products`,
+      productSmiles: productSmiles || smiles,
+      bucket: productSmiles ? "high" : "none",
+      confidence: productSmiles ? 0.78 : 0.34,
+      annotations: {
+        stereochemistry: "unchanged",
+        selectivity: "one acyl group transferred",
+        mechanism: "anhydride alcoholysis",
+      },
+      explanation: [
+        "Alcohols open acid anhydrides to give an ester and a carboxylic acid.",
+      ],
+    }),
+  ];
+}
+
+function anhydrideAminolysisCandidates(molecule, amine) {
+  const smiles = reactionSmilesForMolecule(molecule);
+  const productSmiles = aminolyzeFirstAnhydride(smiles, amineNucleophileSmiles(amine));
+  return [
+    candidate({
+      id: "anhydride_aminolysis",
+      label: "Amide plus carboxylic acid",
+      productName: `${molecule.displayName} aminolysis products`,
+      productSmiles: productSmiles || smiles,
+      bucket: productSmiles ? "high" : "none",
+      confidence: productSmiles ? 0.78 : 0.34,
+      annotations: {
+        stereochemistry: "unchanged",
+        selectivity: "one acyl group transferred",
+        mechanism: "anhydride aminolysis",
+      },
+      explanation: [
+        "Ammonia and amines open acid anhydrides to give an amide and a carboxylate or carboxylic acid byproduct.",
+      ],
+    }),
+  ];
+}
+
+function esterHydrolysisCandidates(molecule, reagentIds) {
+  const smiles = reactionSmilesForMolecule(molecule);
+  const productSmiles = hydrolyzeFirstEsterToAcidAndAlcohol(smiles);
+  const basic = reagentIds.has("hydroxide");
+  return [
+    candidate({
+      id: basic ? "base_ester_hydrolysis" : "acid_ester_hydrolysis",
+      label: basic ? "Carboxylate/acid plus alcohol" : "Carboxylic acid plus alcohol",
+      productName: `${molecule.displayName} hydrolysis products`,
+      productSmiles: productSmiles || smiles,
+      bucket: productSmiles ? "high" : "none",
+      confidence: productSmiles ? 0.8 : 0.34,
+      annotations: {
+        stereochemistry: "unchanged",
+        selectivity: basic ? "saponification" : "reversible hydrolysis",
+        mechanism: basic ? "base-promoted ester hydrolysis" : "acid-catalyzed ester hydrolysis",
+        equilibrium: basic ? "effectively driven by carboxylate formation" : "reversible",
+      },
+      explanation: [
+        basic
+          ? "Hydroxide hydrolyzes esters to carboxylates; acid workup gives the carboxylic acid."
+          : "Aqueous acid hydrolyzes esters back to carboxylic acids and alcohols.",
+      ],
+    }),
+  ];
+}
+
+function amideHydrolysisCandidates(molecule, reagentIds) {
+  const smiles = reactionSmilesForMolecule(molecule);
+  const productSmiles = hydrolyzeFirstAmideToAcidAndAmine(smiles);
+  return [
+    candidate({
+      id: reagentIds.has("hydroxide") ? "base_amide_hydrolysis" : "acid_amide_hydrolysis",
+      label: "Carboxylic acid plus amine/ammonia",
+      productName: `${molecule.displayName} hydrolysis products`,
+      productSmiles: productSmiles || smiles,
+      bucket: productSmiles ? "high" : "none",
+      confidence: productSmiles ? 0.76 : 0.34,
+      annotations: {
+        stereochemistry: "unchanged",
+        selectivity: "amide hydrolysis",
+        mechanism: reagentIds.has("hydroxide") ? "base-promoted amide hydrolysis" : "acid-catalyzed amide hydrolysis",
+        warnings: ["Amides are less reactive than acid chlorides, anhydrides, and esters; heat is often required."],
+      },
+      explanation: [
+        "Strong acid or base with heat hydrolyzes amides to carboxylic acids or carboxylates plus amine/ammonia.",
+      ],
+    }),
+  ];
+}
+
+function amideLahReductionCandidates(molecule) {
+  const smiles = reactionSmilesForMolecule(molecule);
+  const productSmiles = reduceFirstAmideToAmine(smiles);
+  return [
+    candidate({
+      id: "lah_amide_to_amine",
+      label: "Amine",
+      productName: `${molecule.displayName} LAH amine`,
+      productSmiles: productSmiles || smiles,
+      bucket: productSmiles ? "high" : "none",
+      confidence: productSmiles ? 0.82 : 0.34,
+      annotations: {
+        stereochemistry: "unchanged at nonreacting centers",
+        selectivity: "strong hydride reduction",
+        mechanism: "amide reduction to amine",
+      },
+      explanation: [
+        "LiAlH4 reduces amides to amines after acid workup.",
+        "The carbonyl oxygen is removed; the C-N bond is retained.",
+      ],
+    }),
+  ];
 }
 
 function hasAromaticRing(smiles) {
@@ -5188,6 +5841,257 @@ function reduceFirstCarboxylicAcidToAlcohol(smiles) {
   }
 }
 
+function convertFirstCarboxylicAcidToAcidChloride(smiles) {
+  try {
+    const parsed = chem.fromSmiles(smiles);
+    const acid = findFirstCarboxylicAcid(parsed.graph);
+    if (!acid) return null;
+    const product = cloneGraph(parsed.graph);
+    product.atoms[acid.hydroxylOxygen].token = "Cl";
+    product.root = bestRootForProduct(product, acid.carbonylCarbon);
+    product.hasRings = graphHasCycle(product.atoms, product.bonds);
+    product.hasDisconnectedComponents = hasMultipleConnectedComponents(product);
+    return smilesFromGraph(product);
+  } catch {
+    return null;
+  }
+}
+
+function replaceFirstCarboxylicAcidHydroxylWithFragment(smiles, fragmentSmiles) {
+  if (!fragmentSmiles) return null;
+  try {
+    const parsed = chem.fromSmiles(smiles);
+    const acid = findFirstCarboxylicAcid(parsed.graph);
+    if (!acid) return null;
+    return replaceAcylLeavingGroupWithFragment(parsed.graph, acid.carbonylCarbon, acid.hydroxylOxygen, fragmentSmiles);
+  } catch {
+    return null;
+  }
+}
+
+function alkylateFirstCarboxylate(smiles, alkylSmiles) {
+  if (!alkylSmiles) return null;
+  try {
+    const parsed = chem.fromSmiles(smiles);
+    const carboxylate = findFirstCarboxylate(parsed.graph) || findFirstCarboxylicAcid(parsed.graph);
+    if (!carboxylate) return null;
+    const oxygen = carboxylate.anionOxygen ?? carboxylate.hydroxylOxygen;
+    const product = cloneGraph(parsed.graph);
+    product.atoms[oxygen].token = "O";
+    addFragmentToAtom(product, oxygen, alkylSmiles);
+    product.root = bestRootForProduct(product, carboxylate.carbonylCarbon);
+    product.hasRings = graphHasCycle(product.atoms, product.bonds);
+    product.hasDisconnectedComponents = hasMultipleConnectedComponents(product);
+    return smilesFromGraph(product);
+  } catch {
+    return null;
+  }
+}
+
+function hydrolyzeFirstAcidChloride(smiles) {
+  try {
+    const parsed = chem.fromSmiles(smiles);
+    const acidChloride = findFirstAcidChloride(parsed.graph);
+    if (!acidChloride) return null;
+    const product = cloneGraph(parsed.graph);
+    product.atoms[acidChloride.chloride].token = "O";
+    product.root = bestRootForProduct(product, acidChloride.carbonylCarbon);
+    product.hasRings = graphHasCycle(product.atoms, product.bonds);
+    product.hasDisconnectedComponents = hasMultipleConnectedComponents(product);
+    return smilesFromGraph(product);
+  } catch {
+    return null;
+  }
+}
+
+function replaceFirstAcidChlorideWithFragment(smiles, fragmentSmiles) {
+  if (!fragmentSmiles) return null;
+  try {
+    const parsed = chem.fromSmiles(smiles);
+    const acidChloride = findFirstAcidChloride(parsed.graph);
+    if (!acidChloride) return null;
+    return replaceAcylLeavingGroupWithFragment(parsed.graph, acidChloride.carbonylCarbon, acidChloride.chloride, fragmentSmiles);
+  } catch {
+    return null;
+  }
+}
+
+function replaceAcylLeavingGroupWithFragment(graph, carbonylCarbon, leavingAtom, fragmentSmiles) {
+  const product = cloneGraph(graph);
+  removeGraphBond(product, carbonylCarbon, leavingAtom);
+  product.atoms[leavingAtom].token = "*";
+  addFragmentToAtom(product, carbonylCarbon, fragmentSmiles);
+  product.root = bestRootForProduct(product, carbonylCarbon);
+  product.hasRings = graphHasCycle(product.atoms, product.bonds);
+  product.hasDisconnectedComponents = hasMultipleConnectedComponents(product);
+  return smilesFromConnectedComponent(product, product.root, new Set([leavingAtom]));
+}
+
+function reduceFirstAcidChlorideToAlcohol(smiles) {
+  try {
+    const parsed = chem.fromSmiles(smiles);
+    const acidChloride = findFirstAcidChloride(parsed.graph);
+    if (!acidChloride) return null;
+    const product = cloneGraph(parsed.graph);
+    removeGraphBond(product, acidChloride.carbonylCarbon, acidChloride.chloride);
+    product.atoms[acidChloride.chloride].token = "*";
+    const carbonylBond = graphBondBetween(product, acidChloride.carbonylCarbon, acidChloride.carbonylOxygen);
+    if (!carbonylBond) return null;
+    carbonylBond.order = 1;
+    product.atoms[acidChloride.carbonylOxygen].token = "O";
+    product.root = bestRootForProduct(product, acidChloride.carbonylCarbon);
+    product.hasRings = graphHasCycle(product.atoms, product.bonds);
+    product.hasDisconnectedComponents = hasMultipleConnectedComponents(product);
+    return smilesFromConnectedComponent(product, product.root, new Set([acidChloride.chloride]));
+  } catch {
+    return null;
+  }
+}
+
+function addGrignardTwiceToAcidChloride(smiles, organoSmiles) {
+  if (!organoSmiles) return null;
+  try {
+    const parsed = chem.fromSmiles(smiles);
+    const acidChloride = findFirstAcidChloride(parsed.graph);
+    if (!acidChloride) return null;
+    const product = cloneGraph(parsed.graph);
+    removeGraphBond(product, acidChloride.carbonylCarbon, acidChloride.chloride);
+    product.atoms[acidChloride.chloride].token = "*";
+    const carbonylBond = graphBondBetween(product, acidChloride.carbonylCarbon, acidChloride.carbonylOxygen);
+    if (!carbonylBond) return null;
+    carbonylBond.order = 1;
+    product.atoms[acidChloride.carbonylOxygen].token = "O";
+    addFragmentToAtom(product, acidChloride.carbonylCarbon, organoSmiles);
+    addFragmentToAtom(product, acidChloride.carbonylCarbon, organoSmiles);
+    product.root = bestRootForProduct(product, acidChloride.carbonylCarbon);
+    product.hasRings = graphHasCycle(product.atoms, product.bonds);
+    product.hasDisconnectedComponents = hasMultipleConnectedComponents(product);
+    return smilesFromConnectedComponent(product, product.root, new Set([acidChloride.chloride]));
+  } catch {
+    return null;
+  }
+}
+
+function addOrganocuprateToAcidChloride(smiles, organoSmiles) {
+  if (!organoSmiles) return null;
+  try {
+    const parsed = chem.fromSmiles(smiles);
+    const acidChloride = findFirstAcidChloride(parsed.graph);
+    if (!acidChloride) return null;
+    const product = cloneGraph(parsed.graph);
+    removeGraphBond(product, acidChloride.carbonylCarbon, acidChloride.chloride);
+    product.atoms[acidChloride.chloride].token = "*";
+    addFragmentToAtom(product, acidChloride.carbonylCarbon, organoSmiles);
+    product.root = bestRootForProduct(product, acidChloride.carbonylCarbon);
+    product.hasRings = graphHasCycle(product.atoms, product.bonds);
+    product.hasDisconnectedComponents = hasMultipleConnectedComponents(product);
+    return smilesFromConnectedComponent(product, product.root, new Set([acidChloride.chloride]));
+  } catch {
+    return null;
+  }
+}
+
+function hydrolyzeFirstAnhydrideToAcids(smiles) {
+  return transformFirstAnhydride(smiles, "hydrolysis", null);
+}
+
+function alcoholyzeFirstAnhydride(smiles, alkoxySmiles) {
+  return transformFirstAnhydride(smiles, "alcoholysis", alkoxySmiles);
+}
+
+function aminolyzeFirstAnhydride(smiles, amineSmiles) {
+  return transformFirstAnhydride(smiles, "aminolysis", amineSmiles);
+}
+
+function transformFirstAnhydride(smiles, mode, incomingFragmentSmiles) {
+  try {
+    const parsed = chem.fromSmiles(smiles);
+    const anhydride = findFirstAcidAnhydride(parsed.graph);
+    if (!anhydride) return null;
+    const product = cloneGraph(parsed.graph);
+    removeGraphBond(product, anhydride.leftCarbonylCarbon, anhydride.bridgeOxygen);
+    removeGraphBond(product, anhydride.rightCarbonylCarbon, anhydride.bridgeOxygen);
+    product.atoms[anhydride.bridgeOxygen].token = "*";
+
+    if (mode === "hydrolysis") {
+      addSubstituentAtom(product, anhydride.leftCarbonylCarbon, "O");
+      addSubstituentAtom(product, anhydride.rightCarbonylCarbon, "O");
+    } else if (mode === "alcoholysis") {
+      if (!incomingFragmentSmiles) return null;
+      addFragmentToAtom(product, anhydride.leftCarbonylCarbon, incomingFragmentSmiles);
+      addSubstituentAtom(product, anhydride.rightCarbonylCarbon, "O");
+    } else if (mode === "aminolysis") {
+      if (!incomingFragmentSmiles) return null;
+      addFragmentToAtom(product, anhydride.leftCarbonylCarbon, incomingFragmentSmiles);
+      addSubstituentAtom(product, anhydride.rightCarbonylCarbon, "O");
+    }
+
+    product.hasRings = graphHasCycle(product.atoms, product.bonds);
+    product.hasDisconnectedComponents = hasMultipleConnectedComponents(product);
+    const excluded = new Set([anhydride.bridgeOxygen]);
+    const left = smilesFromConnectedComponent(product, anhydride.leftCarbonylCarbon, excluded);
+    const right = smilesFromConnectedComponent(product, anhydride.rightCarbonylCarbon, excluded);
+    return [left, right].filter(Boolean).join(".");
+  } catch {
+    return null;
+  }
+}
+
+function hydrolyzeFirstEsterToAcidAndAlcohol(smiles) {
+  try {
+    const parsed = chem.fromSmiles(smiles);
+    const ester = findFirstEster(parsed.graph);
+    if (!ester) return null;
+    const product = cloneGraph(parsed.graph);
+    removeGraphBond(product, ester.carbonylCarbon, ester.alkoxyOxygen);
+    const acidOxygen = addGraphAtom(product, "O");
+    addGraphBond(product.bonds, ester.carbonylCarbon, acidOxygen, 1);
+    product.hasRings = graphHasCycle(product.atoms, product.bonds);
+    product.hasDisconnectedComponents = hasMultipleConnectedComponents(product);
+    const acid = smilesFromConnectedComponent(product, ester.carbonylCarbon, new Set());
+    const alcohol = smilesFromConnectedComponent(product, ester.alkoxyOxygen, new Set());
+    return [acid, alcohol].filter(Boolean).join(".");
+  } catch {
+    return null;
+  }
+}
+
+function hydrolyzeFirstAmideToAcidAndAmine(smiles) {
+  try {
+    const parsed = chem.fromSmiles(smiles);
+    const amide = findFirstAmide(parsed.graph);
+    if (!amide) return null;
+    const product = cloneGraph(parsed.graph);
+    removeGraphBond(product, amide.carbonylCarbon, amide.nitrogen);
+    const acidOxygen = addGraphAtom(product, "O");
+    addGraphBond(product.bonds, amide.carbonylCarbon, acidOxygen, 1);
+    product.hasRings = graphHasCycle(product.atoms, product.bonds);
+    product.hasDisconnectedComponents = hasMultipleConnectedComponents(product);
+    const acid = smilesFromConnectedComponent(product, amide.carbonylCarbon, new Set());
+    const amine = smilesFromConnectedComponent(product, amide.nitrogen, new Set());
+    return [acid, amine].filter(Boolean).join(".");
+  } catch {
+    return null;
+  }
+}
+
+function reduceFirstAmideToAmine(smiles) {
+  try {
+    const parsed = chem.fromSmiles(smiles);
+    const amide = findFirstAmide(parsed.graph);
+    if (!amide) return null;
+    const product = cloneGraph(parsed.graph);
+    removeGraphBond(product, amide.carbonylCarbon, amide.carbonylOxygen);
+    product.atoms[amide.carbonylOxygen].token = "*";
+    product.root = bestRootForProduct(product, amide.carbonylCarbon);
+    product.hasRings = graphHasCycle(product.atoms, product.bonds);
+    product.hasDisconnectedComponents = hasMultipleConnectedComponents(product);
+    return smilesFromConnectedComponent(product, product.root, new Set([amide.carbonylOxygen]));
+  } catch {
+    return null;
+  }
+}
+
 function normalizeAldehydeSmiles(smiles) {
   const leadingCarbonyl = smiles.match(/^C\(=O\)(.+)$/);
   if (leadingCarbonyl) return `${leadingCarbonyl[1]}C=O`;
@@ -5395,6 +6299,69 @@ function findFirstCarboxylicAcid(graph) {
         carbonylCarbon: carbonyl.carbon,
         carbonylOxygen: carbonyl.oxygen,
         hydroxylOxygen: hydroxyl.atomIndex,
+      };
+    }
+  }
+  return null;
+}
+
+function findFirstCarboxylate(graph) {
+  for (const carbonyl of carbonylsInGraph(graph)) {
+    const anion = graphNeighbors(graph, carbonyl.carbon)
+      .filter((neighbor) => neighbor.atomIndex !== carbonyl.oxygen)
+      .filter((neighbor) => neighbor.bond.order === 1)
+      .find((neighbor) => {
+        const atom = graph.atoms[neighbor.atomIndex];
+        return atomElement(atom) === "O" && /\[O-/.test(atom.token);
+      });
+    if (anion) {
+      return {
+        carbonylCarbon: carbonyl.carbon,
+        carbonylOxygen: carbonyl.oxygen,
+        anionOxygen: anion.atomIndex,
+      };
+    }
+  }
+  return null;
+}
+
+function findFirstAmide(graph) {
+  for (const carbonyl of carbonylsInGraph(graph)) {
+    const nitrogen = graphNeighbors(graph, carbonyl.carbon)
+      .filter((neighbor) => neighbor.atomIndex !== carbonyl.oxygen)
+      .filter((neighbor) => neighbor.bond.order === 1)
+      .find((neighbor) => atomElement(graph.atoms[neighbor.atomIndex]) === "N");
+    if (nitrogen) {
+      return {
+        carbonylCarbon: carbonyl.carbon,
+        carbonylOxygen: carbonyl.oxygen,
+        nitrogen: nitrogen.atomIndex,
+      };
+    }
+  }
+  return null;
+}
+
+function findFirstAcidAnhydride(graph) {
+  const carbonyls = carbonylsInGraph(graph);
+  for (const left of carbonyls) {
+    const bridge = graphNeighbors(graph, left.carbon)
+      .filter((neighbor) => neighbor.atomIndex !== left.oxygen)
+      .filter((neighbor) => neighbor.bond.order === 1)
+      .find((neighbor) => atomElement(graph.atoms[neighbor.atomIndex]) === "O");
+    if (!bridge) continue;
+    const rightCarbonyl = graphNeighbors(graph, bridge.atomIndex)
+      .filter((neighbor) => neighbor.atomIndex !== left.carbon)
+      .filter((neighbor) => neighbor.bond.order === 1)
+      .map((neighbor) => carbonyls.find((carbonyl) => carbonyl.carbon === neighbor.atomIndex))
+      .find(Boolean);
+    if (rightCarbonyl) {
+      return {
+        leftCarbonylCarbon: left.carbon,
+        leftCarbonylOxygen: left.oxygen,
+        bridgeOxygen: bridge.atomIndex,
+        rightCarbonylCarbon: rightCarbonyl.carbon,
+        rightCarbonylOxygen: rightCarbonyl.oxygen,
       };
     }
   }

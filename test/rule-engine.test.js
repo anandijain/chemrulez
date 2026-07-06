@@ -125,6 +125,9 @@ const HBr = reagent("hbr", "HBr", "hydrohalogenation");
 const HBrPeroxides = reagent("hbr_peroxides", "HBr, ROOR", "radical anti-Markovnikov hydrohalogenation");
 const acidHydration = reagent("acid_hydration", "H3O+", "acid-catalyzed alkene hydration");
 const acidHeat = reagent("acid_heat", "H3O+, heat", "acidic hydrolysis conditions");
+const water = reagent("water", "H2O", "hydrolysis reagent");
+const pyridineBase = reagent("pyridine_base", "pyridine", "base for acyl substitution");
+const DCC = reagent("dcc", "DCC", "carboxylic acid amide coupling");
 const ethyleneGlycolProtection = reagent("ethylene_glycol_acetal_protection", "HOCH2CH2OH, H+", "carbonyl acetal protection");
 const hydroxide = reagent("hydroxide", "NaOH, H2O", "hydroxide nucleophile");
 hydroxide.nucleophile = { token: "O", label: "hydroxide" };
@@ -161,6 +164,8 @@ const methylGrignard = reagent("local_grignard_methyl", "CH3MgBr, H3O+", "Grigna
 methylGrignard.organoSmiles = "C";
 const phenylGrignard = reagent("local_grignard_phenyl", "PhMgBr, H3O+", "Grignard addition");
 phenylGrignard.organoSmiles = "c1ccccc1";
+const methylCuprate = reagent("local_cuprate_methyl", "(CH3)2CuLi", "organocuprate acyl substitution");
+methylCuprate.organoSmiles = "C";
 const magnesium = reagent("mg_ether", "Mg, Et2O", "Grignard formation");
 const PBr3 = reagent("pbr3", "PBr3", "alcohol to alkyl bromide");
 const SOCl2 = reagent("socl2", "SOCl2", "alcohol to alkyl chloride");
@@ -1481,6 +1486,148 @@ const tests = [
       const [borohydride] = productsFor("CC(=O)O", NaBH4);
       assert.equal(borohydride.label, "No aldehyde or ketone carbonyl found");
       assert.equal(borohydride.bucket, "none");
+    },
+  },
+  {
+    name: "carboxylic acids convert to acid chlorides, esters, and amides",
+    async run() {
+      assert.equal(context.resolveKnownReagent("SOCl2").id, "socl2");
+      assert.equal(context.resolveKnownReagent("DCC").id, "dcc");
+
+      const methanol = await context.resolveStructuralReagent("methanol");
+      const methylamine = await context.resolveStructuralReagent("methylamine");
+
+      const [acidChloride] = productsFor("CC(=O)O", SOCl2);
+      assert.equal(acidChloride.label, "Acid chloride");
+      assert.equal(acidChloride.annotations.mechanism, "acid chloride formation");
+      assert.ok(context.hasAcidChloride(acidChloride.productSmiles));
+
+      const [ester] = productsFor("CC(=O)O", methanol, context.resolveKnownReagent("H2SO4"));
+      assert.equal(ester.label, "Fischer esterification");
+      assert.equal(ester.annotations.equilibrium, "reversible; remove water or use excess alcohol");
+      assert.ok(context.hasEster(ester.productSmiles));
+
+      const [amide] = productsFor("CC(=O)O", DCC, methylamine);
+      assert.equal(amide.label, "Amide");
+      assert.equal(amide.annotations.mechanism, "DCC carboxylic acid amide coupling");
+      assert.ok(context.hasAmide(amide.productSmiles));
+
+      const dccInput = await context.resolveReagentInput("DCC methylamine");
+      assert.ok(dccInput.reagents.some((reagent) => reagent.id === "dcc"));
+      assert.ok(dccInput.reagents.some((reagent) => reagent.kind === "primary amine imine donor"));
+      const [appAmide] = context.findReactionCandidates(molecule("acetic acid", "CC(=O)O"), dccInput);
+      assert.equal(appAmide.label, "Amide");
+    },
+  },
+  {
+    name: "carboxylates alkylate primary alkyl halides to esters",
+    async run() {
+      assert.equal(context.localMoleculeFromInput("sodium acetate").canonicalSmiles, "CC(=O)[O-]");
+      const ethylBromide = await context.resolveStructuralReagent("ethyl bromide");
+
+      const [candidate] = productsFor("CC(=O)[O-]", ethylBromide);
+      assert.equal(candidate.label, "SN2 esterification");
+      assert.equal(candidate.annotations.mechanism, "carboxylate SN2 alkylation");
+      assert.ok(context.hasEster(candidate.productSmiles));
+    },
+  },
+  {
+    name: "acid chlorides hydrolyze and undergo acyl substitutions",
+    async run() {
+      const methanol = await context.resolveStructuralReagent("methanol");
+      const ammonia = await context.resolveStructuralReagent("ammonia");
+      const acetate = await context.resolveStructuralReagent("sodium acetate");
+
+      const [hydrolysis] = productsFor("CC(=O)Cl", water);
+      assert.equal(hydrolysis.label, "Carboxylic acid");
+      assert.equal(hydrolysis.annotations.mechanism, "acid chloride hydrolysis");
+      assert.ok(context.hasCarboxylicAcid(hydrolysis.productSmiles));
+
+      const [anhydride] = productsFor("CC(=O)Cl", acetate);
+      assert.equal(anhydride.label, "Acid anhydride");
+      assert.equal(anhydride.annotations.mechanism, "acid chloride carboxylate acyl substitution");
+      assert.ok(context.hasAcidAnhydride(anhydride.productSmiles));
+
+      const [ester] = productsFor("CC(=O)Cl", methanol, pyridineBase);
+      assert.equal(ester.label, "Ester");
+      assert.equal(ester.annotations.mechanism, "acid chloride alcoholysis");
+      assert.ok(context.hasEster(ester.productSmiles));
+
+      const alcoholysisInput = await context.resolveReagentInput("methanol pyridine");
+      assert.ok(alcoholysisInput.reagents.some((reagent) => reagent.id === "pyridine_base"));
+      assert.ok(alcoholysisInput.reagents.some((reagent) => reagent.kind === "alcohol acetal donor"));
+      const [appEster] = context.findReactionCandidates(molecule("acetyl chloride", "CC(=O)Cl"), alcoholysisInput);
+      assert.equal(appEster.label, "Ester");
+
+      const [amide] = productsFor("CC(=O)Cl", ammonia);
+      assert.equal(amide.label, "Amide");
+      assert.equal(amide.annotations.mechanism, "acid chloride aminolysis");
+      assert.ok(context.hasAmide(amide.productSmiles));
+    },
+  },
+  {
+    name: "acid chlorides reduce, overreact with Grignards, and stop at ketones with cuprates",
+    run() {
+      const [lah] = productsFor("CC(=O)Cl", LiAlH4);
+      assert.equal(lah.label, "Primary alcohol");
+      assert.equal(lah.productSmiles, "CCO");
+      assert.equal(lah.annotations.mechanism, "acid chloride reduction to alcohol");
+
+      const [grignard] = productsFor("CC(=O)Cl", methylGrignard);
+      assert.equal(grignard.label, "Tertiary alcohol after acid chloride double addition");
+      assert.equal(grignard.productSmiles, "CC(C)(C)O");
+      assert.equal(grignard.annotations.selectivity, "two additions to acid chloride");
+
+      const [cuprate] = productsFor("CC(=O)Cl", methylCuprate);
+      assert.equal(cuprate.label, "Ketone");
+      assert.equal(cuprate.productSmiles, "CC(C)=O");
+      assert.equal(cuprate.annotations.mechanism, "organocuprate acyl substitution");
+    },
+  },
+  {
+    name: "acid anhydrides hydrolyze, alcoholyze, and aminolyze",
+    async run() {
+      assert.equal(context.localMoleculeFromInput("acetic anhydride").canonicalSmiles, "CC(=O)OC(C)=O");
+      const methanol = await context.resolveStructuralReagent("methanol");
+      const ammonia = await context.resolveStructuralReagent("ammonia");
+
+      const [hydrolysis] = productsFor("CC(=O)OC(C)=O", water);
+      assert.equal(hydrolysis.label, "Carboxylic acid fragments");
+      assert.equal(hydrolysis.annotations.mechanism, "anhydride hydrolysis");
+      assert.ok(hydrolysis.productSmiles.split(".").every((fragment) => context.hasCarboxylicAcid(fragment)));
+
+      const [alcoholysis] = productsFor("CC(=O)OC(C)=O", methanol);
+      assert.equal(alcoholysis.label, "Ester plus carboxylic acid");
+      assert.equal(alcoholysis.annotations.mechanism, "anhydride alcoholysis");
+      assert.ok(alcoholysis.productSmiles.split(".").some((fragment) => context.hasEster(fragment)));
+
+      const [aminolysis] = productsFor("CC(=O)OC(C)=O", ammonia);
+      assert.equal(aminolysis.label, "Amide plus carboxylic acid");
+      assert.equal(aminolysis.annotations.mechanism, "anhydride aminolysis");
+      assert.ok(aminolysis.productSmiles.split(".").some((fragment) => context.hasAmide(fragment)));
+    },
+  },
+  {
+    name: "esters and amides hydrolyze under acid or base, and amides reduce to amines",
+    run() {
+      const [esterHydrolysis] = productsFor("CC(=O)OC", acidHeat);
+      assert.equal(esterHydrolysis.label, "Carboxylic acid plus alcohol");
+      assert.equal(esterHydrolysis.annotations.mechanism, "acid-catalyzed ester hydrolysis");
+      assert.ok(esterHydrolysis.productSmiles.split(".").some((fragment) => context.hasCarboxylicAcid(fragment)));
+
+      const [saponification] = productsFor("CC(=O)OC", hydroxide);
+      assert.equal(saponification.label, "Carboxylate/acid plus alcohol");
+      assert.equal(saponification.annotations.mechanism, "base-promoted ester hydrolysis");
+
+      const [amideHydrolysis] = productsFor("CC(=O)N", acidHeat);
+      assert.equal(amideHydrolysis.label, "Carboxylic acid plus amine/ammonia");
+      assert.equal(amideHydrolysis.annotations.mechanism, "acid-catalyzed amide hydrolysis");
+      assert.ok(amideHydrolysis.productSmiles.split(".").some((fragment) => context.hasCarboxylicAcid(fragment)));
+
+      const [amideReduction] = productsFor("CC(=O)N", LiAlH4);
+      assert.equal(amideReduction.label, "Amine");
+      assert.equal(amideReduction.productSmiles, "CCN");
+      assert.equal(amideReduction.annotations.mechanism, "amide reduction to amine");
     },
   },
   {
